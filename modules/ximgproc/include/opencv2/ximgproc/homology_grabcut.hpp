@@ -56,19 +56,21 @@ namespace cv
 	@param img Input image. Supported formats: CV_8U. Image size must match the one given by
 	mask. The image is assumed to be in RGB format.
 	
+	@param mask Input mask. Supported formats: CV_8UC1. Image size must match the one given by
+	input image. An array of values 0 and 255 for initialization, any other value will result
+	in wrong answer.
+
 	@param filters An array of filters for usage of algorythm. Each filter is seperately
 	applied to its own version of grayscaled input image. May be empty.
 	
-	@param mask Input mask. Supportd formats: CV_8U. Image size must match the one given by
-	input image. A table of PR_FGD and PR_BGD values for initialization, any other value
-	will result in wrong answer. Also serves as the output material.
-	
-	@param rect Temporary value, to be removed.
+	@param output_mask The answer of the grabcut algorythm is stored here. An array of CV_8UC1
+	values which are either GC_PR_FGD or GC_PR_BGD.
 	
 	@param iterCount Total amount of iterations. Each set of iterations uses the same GMMs.
 	Default is 1, meaning GMMs are learned, used and immidiately discarded.
 	 */
-	CV_EXPORTS_W void homology_grabcut(InputArray img, InputArray filters, InputOutputArray mask, Rect _rect, int IterCount=1);
+	CV_EXPORTS_W void homology_grabcut(InputArray img, InputArray mask, InputArray filters,
+		OutputArray output_mask, int IterCount=1);
 	
 	/** @brief Constructs 13 Schmid filters storing them in CV_32FC(13) Mat bank
 	
@@ -80,6 +82,8 @@ namespace cv
 	@param Size of our output, square matrix. Default is 49, as given by original matlab code.
 	 */
 	CV_EXPORTS_W void create_filters(OutputArray filters, int size=49);
+	
+	CV_EXPORTS_W void gc_test(InputOutputArray img, InputOutputArray mask);
 }
 #endif
 #endif

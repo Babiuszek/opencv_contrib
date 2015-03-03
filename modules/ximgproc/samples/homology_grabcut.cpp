@@ -17,6 +17,7 @@ static void help()
         "\nHot keys: \n"
         "\tESC - quit the program\n"
         "\tr - restore the original image\n"
+        "\tt - test\n"
         "\tn - next iteration\n"
         "\n"
         "\tleft mouse button - set rectangle\n"
@@ -56,7 +57,7 @@ public:
 	GCApplication();
 	void test();
     void reset();
-    void setImageAndWinName( const Mat& _image, const string& _winName );
+    void setImageAndWinName( const Mat& _image, Mat& _image_mask, const string& _winName );
     void showImage() const;
     void mouseClick( int event, int x, int y, int flags, void* param );
     int nextIter();
@@ -67,6 +68,7 @@ private:
 
     const string* winName;
     const Mat* image;
+	Mat* image_mask;
     Mat mask;
     Mat bgdModel, fgdModel;
 	Mat filters;
@@ -87,6 +89,18 @@ GCApplication::GCApplication()
 void GCApplication::test()
 {
 	// Insert coe for testing here
+	/*
+	for (int i = 0; i < filters.rows; i++)
+	{
+		for (int j = 0; j < filters.cols; j++)
+			cout << filters.at< Vec<float, 13> >(i, j)[0] << ", ";
+		cout << "\n";
+	}
+	*/
+	gc_test( *image, *image_mask );
+	image = image_mask;
+    reset();
+    showImage();
 }
 
 void GCApplication::reset()
@@ -103,11 +117,12 @@ void GCApplication::reset()
     iterCount = 0;
 }
 
-void GCApplication::setImageAndWinName( const Mat& _image, const string& _winName  )
+void GCApplication::setImageAndWinName( const Mat& _image, Mat& _image_mask, const string& _winName  )
 {
     if( _image.empty() || _winName.empty() )
         return;
     image = &_image;
+	image_mask = &_image_mask;
     winName = &_winName;
     mask.create( image->size(), CV_8UC1);
     reset();
@@ -262,13 +277,13 @@ int GCApplication::nextIter()
         grabCut( *image, mask, rect, bgdModel, fgdModel, 1 );
     else
     {
-        if( rectState != SET )
-            return iterCount;
+		homology_grabcut( *image, *image_mask, filters, mask, 1 );
 
-        if( lblsState == SET || prLblsState == SET )
-            grabCut( *image, mask, rect, bgdModel, fgdModel, 1, GC_INIT_WITH_MASK );
-        else
-            homology_grabcut( *image, filters, mask, rect, 1 );
+		//gc_test( *image, *image_mask );
+		//*image_mask /= 255;
+		//*image_mask += 2;
+		//grabCut( *image, *image_mask, rect, bgdModel, fgdModel, 1, GC_INIT_WITH_MASK );
+		//image_mask->copyTo( mask );
 
         isInitialized = true;
     }
@@ -289,7 +304,8 @@ static void on_mouse( int event, int x, int y, int flags, void* param )
 
 int main( int argc, char** argv )
 {
-	char* filename = argc >= 2 ? argv[1] : (char*)"grabcut_cow.jpg";
+	// Load the image
+	char* filename = argc >= 2 ? argv[1] : (char*)"grabcut_cow.png";
     Mat image = imread( filename, 1 );
     if( image.empty() )
     {
@@ -297,13 +313,25 @@ int main( int argc, char** argv )
         return 1;
     }
 
+	// Load the mask
+	filename = argc >= 2 ? argv[1] : (char*)"grabcut_cow_mask.png";
+	Mat _image_mask = imread( filename, 1 );
+    if( _image_mask.empty() )
+    {
+        cout << "\n Durn, couldn't read image filename " << filename << endl;
+        return 1;
+    }
+	Mat image_mask;
+	cvtColor(_image_mask, image_mask, COLOR_BGR2GRAY);
+	threshold(image_mask, image_mask, 10, 255, THRESH_BINARY);
+
     help();
 
     const string winName = "image";
     namedWindow( winName, WINDOW_AUTOSIZE );
     setMouseCallback( winName, on_mouse, 0 );
 
-    gcapp.setImageAndWinName( image, winName );
+    gcapp.setImageAndWinName( image, image_mask, winName );
     gcapp.showImage();
 
     for(;;)
@@ -323,16 +351,8 @@ int main( int argc, char** argv )
 			gcapp.test();
 			break;
         case 'n':
-            int iterCount = gcapp.getIterCount();
-            cout << "<" << iterCount << "... ";
-            int newIterCount = gcapp.nextIter();
-            if( newIterCount > iterCount )
-            {
-                gcapp.showImage();
-                cout << iterCount << ">" << endl;
-            }
-            else
-                cout << "rect must be determined>" << endl;
+            gcapp.nextIter();
+            gcapp.showImage();
             break;
         }
     }

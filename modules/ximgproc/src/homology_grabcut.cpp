@@ -42,6 +42,7 @@
 //C:\Users\Mateusz\Desktop\Computer Vision\OpenCV 3.0.0alpha\sources\modules\ml\src
 #include "precomp.hpp"
 #include "gcgraph.hpp"
+#include "thinning.hpp"
 #include <limits>
 
 #include <opencv2/imgproc.hpp>
@@ -615,7 +616,7 @@ static void estimateSegmentation( GCGraph<double>& graph, Mat& mask )
 }
 
 // Shrinking function, creates a material by times smaller
-Mat* shrink( const Mat& input, const int by )
+Mat* shrink( const Mat& input, Mat& mask, const int by )
 {
 	// Create our shrunk Material
 	Mat* output = new Mat( input.rows/by, input.cols/by, CV_64FC(DOUBLE_CHANNELS) );
@@ -661,6 +662,29 @@ Mat* shrink( const Mat& input, const int by )
 		}
 	}
 
+	// Now time to shrink the mask
+	Mat out_mask;
+	out_mask.create( output->rows, output->cols, CV_8UC1 );
+	out_mask.setTo( Scalar(0) );
+	for( p_o.y = 0; p_o.y < out_mask.rows; p_o.y++ )
+    {
+        for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
+		{
+			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
+			uchar& value = out_mask.at<uchar>(p_o);
+
+			// And calculate these values using the area from input image. We first calculate the means
+			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
+				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
+					value = max(mask.at<uchar>(p_i), value);
+			
+			//if ((int)value == GC_PR_FGD)
+			//	value = GC_FGD;
+			//else value = GC_PR_BGD;
+		}
+	}
+	out_mask.copyTo(mask);
+
 	// And done!
 	return output;
 }
@@ -700,7 +724,7 @@ Mat* grey_and_expand( const Mat& input )
 		{
 			const Vec3b vi = input.at<Vec3b>(p);
 			Vecd_c& vo = output->at<Vecd_c>(p);
-
+			
 			// 1) (0.2126*R + 0.7152*G + 0.0722*B) <- Relative luminance according to wiki
 			// 2) (0.299*R + 0.587*G + 0.114*B) <- Suggested by W3C Working Draft
 			// 3) sqrt( 0.299*R^2 + 0.587*G^2 + 0.114*B^2 ) <- Photoshop does something close to this
@@ -716,8 +740,7 @@ Mat* grey_and_expand( const Mat& input )
 	return output;
 }
 
-void homology_grabcut( InputArray _img, InputArray _filters, InputOutputArray _mask, Rect _rect,
-                  int iterCount )
+void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters, OutputArray _out_mask, int iterCount )
 {
 	const int by = 10;
 
@@ -748,12 +771,18 @@ void homology_grabcut( InputArray _img, InputArray _filters, InputOutputArray _m
 	// Build back our final solution
 	merge( img_cg_v, CHANNELS, *img_cg );
 
-    Mat* img_dc = shrink( *img_cg, by ); // Image double channels (shrunk)
-    Mat mask; // Shrunk mask
-	Mat& out_mask = _mask.getMatRef();
-	Rect rect = Rect(_rect.x/by, _rect.y/by,
-					min((int)ceil((double)_rect.width/(double)by), img_dc->cols-1), //Max possible amount of rectangles
-					min((int)ceil((double)_rect.height/(double)by), img_dc->rows-1)); // Shrunk rect
+	// Thin our initial mask and make sure it's correct
+	Mat& out_mask = _out_mask.getMatRef();
+    Mat mask = _mask.getMat(); // Shrunk mask
+	thinning( mask, mask ); //returns 255s and 0s
+	mask.forEach<uchar>([&](uchar& value, const int position[]) -> void{
+		value = value/255 + 2;
+	});
+	
+	// Check mask for any errors
+	checkMask( _img.getMat(), mask );
+	// Shrink our image and mask
+    Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
     Mat bgdModel = Mat(); // Our local model
     Mat fgdModel = Mat(); // Same as above
 
@@ -761,13 +790,8 @@ void homology_grabcut( InputArray _img, InputArray _filters, InputOutputArray _m
     GMM_dc bgdGMM( bgdModel ), fgdGMM( fgdModel );
     Mat compIdxs( img_dc->size(), CV_32SC1 );
 
-	// Here we always initialize with rect
-    initMaskWithRect( mask, img_dc->size(), rect );
 	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
     initGMMs_dc( *img_dc, mask, bgdGMM, fgdGMM );
-
-	// Check mask for any errors
-    checkMask( *img_dc, mask );
 
 	// Simple parameters of our algorythm, used for setting up edge flows
     const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
@@ -804,6 +828,38 @@ void homology_grabcut( InputArray _img, InputArray _filters, InputOutputArray _m
 
 	// Piece together full size mask out of smaller one
 	expandShrunkMat(mask, out_mask, by);
+
+	int tp = 0;
+	int tn = 0;
+	int fp = 0;
+	int fn = 0;
+	mask = _mask.getMat();
+	for (int i = 0; i < mask.rows; i++)
+		for (int j = 0; j < mask.cols; j++)
+		{
+			int value = (int)out_mask.at<uchar>(i, j);
+			int answer = (int)mask.at<uchar>(i, j);
+
+			if (value == GC_BGD || (int)value == GC_PR_BGD)
+				value = 0;
+			else value = 1;
+			if (answer == 255)
+				answer = 1;
+
+			if (value == 1 && answer == 1)
+				tp++;
+			else if (value == 0 && answer == 0)
+				tn++;
+			else if (value == 1 && answer == 0)
+				fp++;
+			else if (value == 0 && answer == 1)
+				fn++;
+			else std::cout << "Wrong value " << value << " or answer " << answer << "\n";
+		}
+	std::cout << "True positives: " << tp << "\n";
+	std::cout << "True negatives: " << tn << "\n";
+	std::cout << "False positives: " << fp << "\n";
+	std::cout << "False negatives: " << fn << "\n";
 	
 	// Clean-up
 	delete img_dc;
@@ -815,9 +871,6 @@ void homology_grabcut( InputArray _img, InputArray _filters, InputOutputArray _m
 // http://www.robots.ox.ac.uk/~vgg/research/texclass/filters.html
 void make_filter( Mat& f, const int sup, const int sigma, const int tau, const int which )
 {	
-	// Initialize
-	int hsup = (sup-1)/2;
-	
 	// All calculations done using parallel execution with C++11 lambda.
 	// Calculate cos(...)*exp(...) part
 	f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
@@ -879,6 +932,16 @@ void create_filters(OutputArray _filters, int size)
 	make_filter( filters, size, 10, 2, 10 );
 	make_filter( filters, size, 10, 3, 11 );
 	make_filter( filters, size, 10, 4, 12 );
+}
+
+void gc_test(InputOutputArray _img, InputOutputArray _mask)
+{
+	//Mat* img = grey_and_expand( _img.getMat() );
+	Mat& mask = _mask.getMatRef();
+	thinning( mask, mask ); //returns 255s and 0s
+	//shrink( *img, mask, 10 );
+	//std::cout << "Sum=" << sum(mask)(0)/255 << "\n";
+	//delete img;
 }
 
 } //namespace cv
