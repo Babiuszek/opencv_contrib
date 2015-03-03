@@ -677,10 +677,6 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
 				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
 					value = max(mask.at<uchar>(p_i), value);
-			
-			//if ((int)value == GC_PR_FGD)
-			//	value = GC_FGD;
-			//else value = GC_PR_BGD;
 		}
 	}
 	out_mask.copyTo(mask);
@@ -715,7 +711,7 @@ Mat* grey_and_expand( const Mat& input )
 {
 	// Create output material of input size and n dimensions
 	Mat* output = new Mat(input.rows, input.cols, CV_64FC(CHANNELS));
-
+	
 	// Calculate grayscale values
 	Point p;
 	for (p.y = 0; p.y < input.rows; p.y++)
@@ -757,16 +753,13 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters, O
 	// Applying filters
 	Mat img_cg_v[CHANNELS]; // Vector of values for filter2D usage
 	Mat filters_v[FILTERS]; // Vector of filters for filter2D usage
-	Mat dst; // Temporary value for filter2D function
 	split( *img_cg, img_cg_v );
 	split( filters, filters_v );
 	for (int i = 0; i < FILTERS; i++)
 	{
 		// Apply the filter. Default values are:
 		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
-		filter2D( img_cg_v[i+1], dst, CV_64F, filters_v[i] );
-		// Copy our answer
-		dst.copyTo(img_cg_v[i+1]);
+		filter2D( img_cg_v[i+1], img_cg_v[i+1], CV_64F, filters_v[i] );
 	}
 	// Build back our final solution
 	merge( img_cg_v, CHANNELS, *img_cg );
@@ -775,9 +768,8 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters, O
 	Mat& out_mask = _out_mask.getMatRef();
     Mat mask = _mask.getMat(); // Shrunk mask
 	thinning( mask, mask ); //returns 255s and 0s
-	mask.forEach<uchar>([&](uchar& value, const int position[]) -> void{
-		value = value/255 + 2;
-	});
+	mask /= 255;
+	mask += 2;
 	
 	// Check mask for any errors
 	checkMask( _img.getMat(), mask );
@@ -791,13 +783,13 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters, O
     Mat compIdxs( img_dc->size(), CV_32SC1 );
 
 	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
-    initGMMs_dc( *img_dc, mask, bgdGMM, fgdGMM );
+	initGMMs_dc( *img_dc, mask, bgdGMM, fgdGMM );
 
 	// Simple parameters of our algorythm, used for setting up edge flows
-    const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
-    const double lambda = 9*gamma; // Lambda is simply a max value for flow, be it from source or to target, here 450
-    const double beta = calcBeta_dc( *img_dc ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
-										 // 1 / 2*average distance in colors between neighbours
+	const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
+	const double lambda = 9*gamma; // Lambda is simply a max value for flow, be it from source or to target, here 450
+	const double beta = calcBeta_dc( *img_dc ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
+												// 1 / 2*average distance in colors between neighbours
 
 	// NWeights, the flow capacity of our edges
     Mat leftW, upleftW, upW, uprightW;
@@ -936,12 +928,17 @@ void create_filters(OutputArray _filters, int size)
 
 void gc_test(InputOutputArray _img, InputOutputArray _mask)
 {
-	//Mat* img = grey_and_expand( _img.getMat() );
 	Mat& mask = _mask.getMatRef();
 	thinning( mask, mask ); //returns 255s and 0s
-	//shrink( *img, mask, 10 );
-	//std::cout << "Sum=" << sum(mask)(0)/255 << "\n";
-	//delete img;
+}
+void gc_test2(InputOutputArray _img, InputOutputArray _mask)
+{
+	Mat* img = grey_and_expand( _img.getMat() );
+	Mat& mask = _mask.getMatRef();
+	thinning( mask, mask ); //returns 255s and 0s
+	shrink( *img, mask, 10 );
+	std::cout << "Sum=" << sum(mask)(0)/255 << "\n";
+	delete img;
 }
 
 } //namespace cv

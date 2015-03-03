@@ -84,6 +84,7 @@ namespace cv
 	CV_EXPORTS_W void create_filters(OutputArray filters, int size=49);
 	
 	CV_EXPORTS_W void gc_test(InputOutputArray img, InputOutputArray mask);
+	CV_EXPORTS_W void gc_test2(InputOutputArray img, InputOutputArray mask);
 }
 #endif
 #endif

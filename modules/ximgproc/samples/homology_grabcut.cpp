@@ -79,6 +79,7 @@ private:
     Rect rect;
     vector<Point> fgdPxls, bgdPxls, prFgdPxls, prBgdPxls;
     int iterCount;
+	int mode;
 };
 
 GCApplication::GCApplication()
@@ -97,7 +98,7 @@ void GCApplication::test()
 		cout << "\n";
 	}
 	*/
-	gc_test( *image, *image_mask );
+	gc_test2( *image, *image_mask );
 	image = image_mask;
     reset();
     showImage();
@@ -277,13 +278,16 @@ int GCApplication::nextIter()
         grabCut( *image, mask, rect, bgdModel, fgdModel, 1 );
     else
     {
-		homology_grabcut( *image, *image_mask, filters, mask, 1 );
-
-		//gc_test( *image, *image_mask );
-		//*image_mask /= 255;
-		//*image_mask += 2;
-		//grabCut( *image, *image_mask, rect, bgdModel, fgdModel, 1, GC_INIT_WITH_MASK );
-		//image_mask->copyTo( mask );
+		if (mode == 0)
+			homology_grabcut( *image, *image_mask, filters, mask, 1 );
+		else
+		{
+			gc_test( *image, *image_mask );
+			*image_mask /= 255;
+			*image_mask += 2;
+			image_mask->copyTo( mask );
+			grabCut( *image, mask, rect, bgdModel, fgdModel, 1, GC_INIT_WITH_MASK );
+		}
 
         isInitialized = true;
     }
@@ -314,7 +318,7 @@ int main( int argc, char** argv )
     }
 
 	// Load the mask
-	filename = argc >= 2 ? argv[1] : (char*)"grabcut_cow_mask.png";
+	filename = argc >= 2 ? argv[1] : (char*)"grabcut_cow_mask.bmp";
 	Mat _image_mask = imread( filename, 1 );
     if( _image_mask.empty() )
     {
@@ -322,7 +326,7 @@ int main( int argc, char** argv )
         return 1;
     }
 	Mat image_mask;
-	cvtColor(_image_mask, image_mask, COLOR_BGR2GRAY);
+	cvtColor(_image_mask, image_mask, COLOR_RGB2GRAY);
 	threshold(image_mask, image_mask, 10, 255, THRESH_BINARY);
 
     help();
