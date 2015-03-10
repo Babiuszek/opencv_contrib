@@ -53,24 +53,29 @@ namespace cv
 	image. The images and initial mask are then shrunk 10 times. Finally, a standard version
 	of grabcut is used on the shrunk images, giving us shrunken answer which is then enlarged.
 	
-	@param img Input image. Supported formats: CV_8U. Image size must match the one given by
+	@param img Input image. Supported formats: CV_8UC1. Image size must match the one given by
 	mask. The image is assumed to be in RGB format.
 	
 	@param mask Input mask. Supported formats: CV_8UC1. Image size must match the one given by
 	input image. An array of values 0 and 255 for initialization, any other value will result
-	in wrong answer.
+	in wrong answer. The image is assumed to be skeletized mask of input image.
 
 	@param filters An array of filters for usage of algorythm. Each filter is seperately
 	applied to its own version of grayscaled input image. May be empty.
 	
 	@param output_mask The answer of the grabcut algorythm is stored here. An array of CV_8UC1
 	values which are either GC_PR_FGD or GC_PR_BGD.
+
+	@param thresh Threshold value between 0.0 and 1.0. It controls how many points of input
+	mask are taken into account, 1-thresh points are ignored and assumed as background.
+
+	@param seed Seed for initializing RNG class.
 	
 	@param iterCount Total amount of iterations. Each set of iterations uses the same GMMs.
 	Default is 1, meaning GMMs are learned, used and immidiately discarded.
 	 */
 	CV_EXPORTS_W void homology_grabcut(InputArray img, InputArray mask, InputArray filters,
-		OutputArray output_mask, int IterCount=1);
+		OutputArray output_mask, double thresh=1.0, uint64 seed=0, int IterCount=1);
 	
 	/** @brief Constructs 13 Schmid filters storing them in CV_32FC(13) Mat bank
 	
@@ -79,9 +84,20 @@ namespace cv
 	
 	@param filters Output filters material of CV_32FC(13) format.
 	
-	@param Size of our output, square matrix. Default is 49, as given by original matlab code.
+	@param size of our output, square matrix. Default is 49, as given by original matlab code.
 	 */
 	CV_EXPORTS_W void create_filters(OutputArray filters, int size=49);
+
+	/** @brief Read an image given by input string, perform thinning on it and save it
+
+	The function reads the image given by first parameter and saves it in path given by
+	the second parameter. Note that thinning may take a while.
+
+	@param img image for skeletization, is assumed to be in RGB format.
+
+	@param output is the path of output image. Thinned version of input.
+	 */
+	CV_EXPORTS_W void skel(InputArray img, OutputArray mask);
 	
 	CV_EXPORTS_W void gc_test(InputOutputArray img, InputOutputArray mask);
 	CV_EXPORTS_W void gc_test2(InputOutputArray img, InputOutputArray mask);

@@ -6,3 +6,5 @@ target_link_libraries(opencv_ximgproc)
 
 file(COPY samples/grabcut_cow.png DESTINATION ${OpenCV_BINARY_DIR}/modules/ximgproc)
 file(COPY samples/grabcut_cow_mask.bmp DESTINATION ${OpenCV_BINARY_DIR}/modules/ximgproc)
+file(COPY samples/grabcut_cow_mask.png DESTINATION ${OpenCV_BINARY_DIR}/modules/ximgproc)
+file(COPY samples/grabcut_cow_mask_skel.png DESTINATION ${OpenCV_BINARY_DIR}/modules/ximgproc)

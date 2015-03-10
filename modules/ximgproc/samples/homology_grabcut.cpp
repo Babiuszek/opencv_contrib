@@ -3,6 +3,7 @@
 #include "opencv2/ximgproc/homology_grabcut.hpp"
 
 #include <iostream>
+#include <time.h>
 
 using namespace std;
 using namespace cv;
@@ -57,7 +58,7 @@ public:
 	GCApplication();
 	void test();
     void reset();
-    void setImageAndWinName( const Mat& _image, Mat& _image_mask, const string& _winName );
+    void setImageAndWinName( const Mat& _image, const Mat& _image_mask, Mat& _image_mask_skel, const string& _winName );
     void showImage() const;
     void mouseClick( int event, int x, int y, int flags, void* param );
     int nextIter();
@@ -68,7 +69,8 @@ private:
 
     const string* winName;
     const Mat* image;
-	Mat* image_mask;
+	const Mat* image_mask;
+	Mat* image_mask_skel;
     Mat mask;
     Mat bgdModel, fgdModel;
 	Mat filters;
@@ -89,7 +91,7 @@ GCApplication::GCApplication()
 
 void GCApplication::test()
 {
-	// Insert coe for testing here
+	// Insert code for testing here
 	/*
 	for (int i = 0; i < filters.rows; i++)
 	{
@@ -118,12 +120,13 @@ void GCApplication::reset()
     iterCount = 0;
 }
 
-void GCApplication::setImageAndWinName( const Mat& _image, Mat& _image_mask, const string& _winName  )
+void GCApplication::setImageAndWinName( const Mat& _image, const Mat& _image_mask, Mat& _image_mask_skel, const string& _winName  )
 {
     if( _image.empty() || _winName.empty() )
         return;
     image = &_image;
 	image_mask = &_image_mask;
+	image_mask_skel = &_image_mask_skel;
     winName = &_winName;
     mask.create( image->size(), CV_8UC1);
     reset();
@@ -279,7 +282,46 @@ int GCApplication::nextIter()
     else
     {
 		if (mode == 0)
-			homology_grabcut( *image, *image_mask, filters, mask, 1 );
+		{
+			srand (time(NULL));
+			homology_grabcut( *image, *image_mask_skel, filters, mask, 0.10, rand() );
+
+			int tp = 0;
+			int tn = 0;
+			int fp = 0;
+			int fn = 0;
+			int wv = 0;
+			for (int i = 0; i < mask.rows; i++)
+				for (int j = 0; j < mask.cols; j++)
+				{
+					int value = (int)mask.at<uchar>(i, j);
+					int answer = (int)image_mask->at<uchar>(i, j);
+
+					if (value == GC_BGD || value == GC_PR_BGD)
+						value = GC_PR_BGD;
+					else value = GC_PR_FGD;
+					answer = answer / 255 + 2;
+
+					if (value == GC_PR_FGD && answer == GC_PR_FGD)
+						tp++;
+					else if (value == GC_PR_BGD && answer == GC_PR_BGD)
+						tn++;
+					else if (value == GC_PR_FGD && answer == GC_PR_BGD)
+						fp++;
+					else if (value == GC_PR_BGD && answer == GC_PR_FGD)
+						fn++;
+					else
+					{
+						wv++;
+						//std::cout << "Wrong value " << value << " or answer " << answer << "\n";
+					}
+				}
+			std::cout << "True positives: " << tp << "\n";
+			std::cout << "True negatives: " << tn << "\n";
+			std::cout << "False positives: " << fp << "\n";
+			std::cout << "False negatives: " << fn << "\n";
+			std::cout << "Wrong values: " << wv << "\n";
+		}
 		else
 		{
 			gc_test( *image, *image_mask );
@@ -318,16 +360,26 @@ int main( int argc, char** argv )
     }
 
 	// Load the mask
-	filename = argc >= 2 ? argv[1] : (char*)"grabcut_cow_mask.bmp";
-	Mat _image_mask = imread( filename, 1 );
-    if( _image_mask.empty() )
+	filename = argc >= 3 ? argv[2] : (char*)"grabcut_cow_mask.bmp";
+	Mat image_mask = imread( filename, 1 );
+    if( image_mask.empty() )
     {
         cout << "\n Durn, couldn't read image filename " << filename << endl;
         return 1;
     }
-	Mat image_mask;
-	cvtColor(_image_mask, image_mask, COLOR_RGB2GRAY);
+	cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
 	threshold(image_mask, image_mask, 10, 255, THRESH_BINARY);
+
+	// Load skel'd mask
+	filename = argc >= 4 ? argv[3] : (char*)"grabcut_cow_mask_skel.png";
+	Mat image_mask_skel = imread( filename, 1 );
+    if( image_mask_skel.empty() )
+    {
+		skel( image_mask, image_mask_skel );
+		imwrite( "grabcut_cow_mask_skel.png", image_mask_skel );
+    }
+	cvtColor(image_mask_skel, image_mask_skel, COLOR_RGB2GRAY);
+	threshold(image_mask_skel, image_mask_skel, 10, 255, THRESH_BINARY);
 
     help();
 
@@ -335,7 +387,7 @@ int main( int argc, char** argv )
     namedWindow( winName, WINDOW_AUTOSIZE );
     setMouseCallback( winName, on_mouse, 0 );
 
-    gcapp.setImageAndWinName( image, image_mask, winName );
+    gcapp.setImageAndWinName( image, image_mask, image_mask_skel, winName );
     gcapp.showImage();
 
     for(;;)

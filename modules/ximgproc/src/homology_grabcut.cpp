@@ -52,6 +52,7 @@
 #include <math.h>
 
 using namespace cv;
+using namespace ml;
 
 namespace cv {
 
@@ -736,7 +737,8 @@ Mat* grey_and_expand( const Mat& input )
 	return output;
 }
 
-void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters, OutputArray _out_mask, int iterCount )
+void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
+	OutputArray _out_mask, double thresh, uint64 seed, int iterCount )
 {
 	const int by = 10;
 
@@ -764,19 +766,75 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters, O
 	// Build back our final solution
 	merge( img_cg_v, CHANNELS, *img_cg );
 
-	// Thin our initial mask and make sure it's correct
+	// Load our output and initial masks
 	Mat& out_mask = _out_mask.getMatRef();
-    Mat mask = _mask.getMat(); // Shrunk mask
-	thinning( mask, mask ); //returns 255s and 0s
+    Mat mask = _mask.getMat(); // Shrunk mask, values given are either assumed 255 or 0
+
+	// Randomizing values of input mask for given threshold
+	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
+	RNG rng = RNG(seed);
+	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
+	threshold(random_mat, random_mat, 255.0*(1.0 - thresh), 1, THRESH_BINARY);
+	multiply( random_mat, mask, mask );
+
+	// Normalize the mask to be either GC_PR_BGD or GC_PR_FGD
 	mask /= 255;
 	mask += 2;
-	
-	// Check mask for any errors
+
+	// Check mask for any errors. If the mask is correct now, it will be correct later
 	checkMask( _img.getMat(), mask );
+	
 	// Shrink our image and mask
     Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
     Mat bgdModel = Mat(); // Our local model
     Mat fgdModel = Mat(); // Same as above
+
+
+	/*
+	// Prepare our Expectation Maximization models
+	Ptr< EM > bgdEM, fgdEM;
+	bgdEM = cv::ml::EM::create();
+	fgdEM = cv::ml::EM::create();
+	
+	// Load our pixel data to proper vectors
+	std::vector< Vecd_dc > bgdPixels;
+	std::vector< Vecd_dc > fgdPixels;
+	for (int i = 0; i < mask.rows; i++)
+		for (int j = 0; j < mask.cols; j++)
+		{
+			uchar flag = mask.at<uchar>(i, j);
+			if (flag == GC_BGD || flag == GC_PR_BGD)
+				bgdPixels.push_back( img_dc->at<Vecd_dc>( i, j ) );
+			else fgdPixels.push_back( img_dc->at<Vecd_dc>( i, j ) );
+		}
+	
+	// No vector should be empty!
+    CV_Assert( !bgdPixels.empty() && !fgdPixels.empty() );
+
+	// Transform vectors
+    Mat bgdSamples( (int)bgdPixels.size(), DOUBLE_CHANNELS, CV_64FC1, &bgdPixels[0][0] );
+    Mat fgdSamples( (int)fgdPixels.size(), DOUBLE_CHANNELS, CV_64FC1, &fgdPixels[0][0] );
+
+	// Temporary matrices to store the best assigned clusters
+	Mat bgdLabels, fgdLabels;
+	Mat bgdProbs, fgdProbs;
+
+	// Train our initial data using K-means algorythm as base (done by function trainEM)
+	bgdEM->trainEM( bgdSamples );//, noArray(), bgdLabels, bgdProbs );
+	fgdEM->trainEM( fgdSamples );//, noArray(), fgdLabels, fgdProbs );
+
+	for (int i = 0; i < bgdProbs.rows; i++)
+		for (int j = 0; j < bgdProbs.cols; j++)
+			if (j != bgdLabels.at<int>(i, 0))
+				bgdProbs.at<double>(i, j) = 0.0;
+			else bgdProbs.at<double>(i, j) = 1.0;
+	for (int i = 0; i < fgdProbs.rows; i++)
+		for (int j = 0; j < fgdProbs.cols; j++)
+			if (j != fgdLabels.at<int>(i, 0))
+				fgdProbs.at<double>(i, j) = 0.0;
+			else fgdProbs.at<double>(i, j) = 1.0;
+	*/
+
 
 	// Building GMMs for local models
     GMM_dc bgdGMM( bgdModel ), fgdGMM( fgdModel );
@@ -811,7 +869,7 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters, O
         learnGMMs_dc( *img_dc, mask, compIdxs, bgdGMM, fgdGMM );
 
 		// NOTE: As far as I can tell these two will be primarily worked upon
-		// Construct grapg cut graph, including initializing s and t values for source and sink flows
+		// Construct GraphCut graph, including initializing s and t values for source and sink flows
         constructGCGraph_dc( *img_dc, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
 
 		// Using max flow algorythm calculate segmentation
@@ -820,38 +878,6 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters, O
 
 	// Piece together full size mask out of smaller one
 	expandShrunkMat(mask, out_mask, by);
-
-	int tp = 0;
-	int tn = 0;
-	int fp = 0;
-	int fn = 0;
-	mask = _mask.getMat();
-	for (int i = 0; i < mask.rows; i++)
-		for (int j = 0; j < mask.cols; j++)
-		{
-			int value = (int)out_mask.at<uchar>(i, j);
-			int answer = (int)mask.at<uchar>(i, j);
-
-			if (value == GC_BGD || (int)value == GC_PR_BGD)
-				value = 0;
-			else value = 1;
-			if (answer == 255)
-				answer = 1;
-
-			if (value == 1 && answer == 1)
-				tp++;
-			else if (value == 0 && answer == 0)
-				tn++;
-			else if (value == 1 && answer == 0)
-				fp++;
-			else if (value == 0 && answer == 1)
-				fn++;
-			else std::cout << "Wrong value " << value << " or answer " << answer << "\n";
-		}
-	std::cout << "True positives: " << tp << "\n";
-	std::cout << "True negatives: " << tn << "\n";
-	std::cout << "False positives: " << fp << "\n";
-	std::cout << "False negatives: " << fn << "\n";
 	
 	// Clean-up
 	delete img_dc;
@@ -924,6 +950,16 @@ void create_filters(OutputArray _filters, int size)
 	make_filter( filters, size, 10, 2, 10 );
 	make_filter( filters, size, 10, 3, 11 );
 	make_filter( filters, size, 10, 4, 12 );
+}
+
+// Function that reads an RGB image, performs thinning on it and saves it as a mask
+void skel(InputArray _img, OutputArray _mask)
+{
+	Mat img = _img.getMat();
+	Mat& mask = _mask.getMatRef();
+	cvtColor(img, img, COLOR_RGB2GRAY);
+	threshold(img, img, 10, 255, THRESH_BINARY);
+	thinning(img, mask);
 }
 
 void gc_test(InputOutputArray _img, InputOutputArray _mask)
