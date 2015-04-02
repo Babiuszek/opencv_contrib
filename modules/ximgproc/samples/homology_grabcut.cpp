@@ -2,8 +2,9 @@
 #include "opencv2/imgproc.hpp"
 #include "opencv2/ximgproc/homology_grabcut.hpp"
 
-#include <iostream>
 #include <time.h>
+#include <sstream>
+#include <iostream>
 #include <fstream>
 
 using namespace std;
@@ -47,7 +48,9 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 	double answer = (double)(tp+tn)/(tp+tn+fp+fn);
 	if (verboseLevel > 0)
 		std::cout << "Accuracy: " << answer << "\n";
-	toLog = toLog + "\t\tAccuracy=" + to_string((long double)answer) + "\n";
+	ostringstream oss;
+	oss << "\t\tAccuracy=" << answer << "\n";
+	toLog = toLog + oss.str();
 	if (verboseLevel > 1)
 	{
 		std::cout << "True positives: " << tp << "\n";
@@ -73,8 +76,9 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& im
 		it_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 		if (verboseLevel > 0)
 			std::cout << "Answer for iteration " << iteration << " found in " << it_time << " seconds.\n";
-		toLog = toLog + "\t\tAnswer for iteration " + to_string((_Longlong)iteration) +
-			" found in " + to_string((long double)it_time) + " seconds.\n";
+		ostringstream oss;
+		oss << "\t\tAnswer for iteration " << iteration << " found in " << it_time << " seconds.\n";
+		toLog = toLog + oss.str();
 
 		accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
 	}
@@ -86,8 +90,9 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& im
 		it_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 		if (verboseLevel > 0)
 			std::cout << "Answer for iteration " << iteration << " found in " << it_time << " seconds.\n";
-		toLog = toLog + "\t\tAnswer for iteration " + to_string((_Longlong)iteration) +
-			" found in " + to_string((long double)it_time) + " seconds.\n";
+		ostringstream oss;
+		oss << "\t\tAnswer for iteration " << iteration << " found in " << it_time << " seconds.\n";
+		toLog = toLog + oss.str();
 
 		accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
 	}
@@ -118,7 +123,7 @@ int main( int argc, char** argv )
 	original.substr(0, original.length()-4);
 
 	// Load the mask
-	filename = argc >= 4 ? argv[3] : (char*)"grabcut_cow_mask.bmp";
+	filename = argc >= 4 ? argv[3] : (char*)"grabcut_cow_mask.png";
 	Mat image_mask = imread( filename, 1 );
     if( image_mask.empty() )
     {
@@ -153,8 +158,10 @@ int main( int argc, char** argv )
 		accuracy = it_time = total_time = 0.0;
 		Mat answer, bin_mask;
 		bin_mask.create( mask.size(), CV_8UC1 );
-
-		toLog = toLog + "\tThreshold=" + to_string((long double)thresh/10) + "\n";
+		
+		ostringstream oss;
+		oss << "\tThreshold=" << (double)thresh/10 << "\n";
+		toLog = toLog + oss.str();
 		for (int i = 0; i < 2; i++)
 		{
 			// Perform iteration
@@ -165,13 +172,14 @@ int main( int argc, char** argv )
 			total_time += it_time;
 			bin_mask = mask & 1;
 			image.copyTo( answer, bin_mask );
-			string output_file = out_path + original + "_thresh" + to_string((long double)thresh/10) +
-				"_it" + to_string((_Longlong)i) +
-				"_ac" + to_string((long double)accuracy) +
-				"_time" + to_string((long double)total_time) + ".png";
+			oss = ostringstream();
+			oss << "_thresh" << (double)thresh/10 << "_it" << i << "_ac" << accuracy << "_time" << total_time << ".png";
+			string output_file = out_path + original + oss.str();
 			imwrite( output_file, answer );
 		}
-		toLog = toLog + "\t\tTotal time=" + to_string((long double)total_time) + "\n";
+		oss = ostringstream();
+		oss << "\t\tTotal time=" << total_time << "\n";
+		toLog = toLog + oss.str();
     }
 	// Initalize log file
 	filename = argc >= 2 ? argv[1] : (char*)"log.txt";
