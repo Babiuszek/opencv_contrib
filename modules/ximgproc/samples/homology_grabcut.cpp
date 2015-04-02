@@ -4,363 +4,121 @@
 
 #include <iostream>
 #include <time.h>
+#include <fstream>
 
 using namespace std;
 using namespace cv;
 
-static void help()
+ofstream logFile;
+
+double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseLevel, string& toLog)
 {
-    cout << "\nThis program demonstrates GrabCut segmentation -- select an object in a region\n"
-            "and then grabcut will attempt to segment it out.\n"
-            "Call:\n"
-            "./grabcut <image_name>\n"
-        "\nSelect a rectangular area around the object you want to segment\n" <<
-        "\nHot keys: \n"
-        "\tESC - quit the program\n"
-        "\tr - restore the original image\n"
-        "\tt - test\n"
-        "\tn - next iteration\n"
-        "\n"
-        "\tleft mouse button - set rectangle\n"
-        "\n"
-        "\tCTRL+left mouse button - set GC_BGD pixels\n"
-        "\tSHIFT+left mouse button - set CG_FGD pixels\n"
-        "\n"
-        "\tCTRL+right mouse button - set GC_PR_BGD pixels\n"
-        "\tSHIFT+right mouse button - set CG_PR_FGD pixels\n" << endl;
-}
+	int tp = 0;
+	int tn = 0;
+	int fp = 0;
+	int fn = 0;
+	int wv = 0;
+	for (int i = 0; i < output.rows; i++)
+		for (int j = 0; j < output.cols; j++)
+		{
+			int value = (int)output.at<uchar>(i, j);
+			int answer = (int)key.at<uchar>(i, j);
+			
+			if (value == GC_BGD || value == GC_PR_BGD)
+				value = GC_PR_BGD;
+			else value = GC_PR_FGD;
+			answer = answer / 255 + 2;
 
-const Scalar RED = Scalar(0,0,255);
-const Scalar PINK = Scalar(230,130,255);
-const Scalar BLUE = Scalar(255,0,0);
-const Scalar LIGHTBLUE = Scalar(255,255,160);
-const Scalar GREEN = Scalar(0,255,0);
-
-const int BGD_KEY = EVENT_FLAG_CTRLKEY;
-const int FGD_KEY = EVENT_FLAG_SHIFTKEY;
-
-static void getBinMask( const Mat& comMask, Mat& binMask )
-{
-    if( comMask.empty() || comMask.type()!=CV_8UC1 )
-        CV_Error( Error::StsBadArg, "comMask is empty or has incorrect type (not CV_8UC1)" );
-    if( binMask.empty() || binMask.rows!=comMask.rows || binMask.cols!=comMask.cols )
-        binMask.create( comMask.size(), CV_8UC1 );
-    binMask = comMask & 1;
-}
-
-class GCApplication
-{
-public:
-    enum{ NOT_SET = 0, IN_PROCESS = 1, SET = 2 };
-    static const int radius = 2;
-    static const int thickness = -1;
-
-	GCApplication();
-	void test();
-    void reset();
-    void setImageAndWinName( const Mat& _image, const Mat& _image_mask, Mat& _image_mask_skel, const string& _winName );
-    void showImage() const;
-    void mouseClick( int event, int x, int y, int flags, void* param );
-    int nextIter();
-    int getIterCount() const { return iterCount; }
-private:
-    void setRectInMask();
-    void setLblsInMask( int flags, Point p, bool isPr );
-
-    const string* winName;
-    const Mat* image;
-	const Mat* image_mask;
-	Mat* image_mask_skel;
-    Mat mask;
-    Mat bgdModel, fgdModel;
-	Mat filters;
-
-    uchar rectState, lblsState, prLblsState;
-    bool isInitialized;
-
-    Rect rect;
-    vector<Point> fgdPxls, bgdPxls, prFgdPxls, prBgdPxls;
-    int iterCount;
-	int mode;
-};
-
-GCApplication::GCApplication()
-{
-	cv::create_filters(filters, 49);
-}
-
-void GCApplication::test()
-{
-	// Insert code for testing here
-	/*
-	for (int i = 0; i < filters.rows; i++)
+			if (value == GC_PR_FGD && answer == GC_PR_FGD)
+				tp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_BGD)
+				tn++;
+			else if (value == GC_PR_FGD && answer == GC_PR_BGD)
+				fp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_FGD)
+				fn++;
+			else
+			{
+				wv++;
+				if (verboseLevel > 2)
+					std::cout << "Wrong value " << value << " or answer " << answer << "\n";
+			}
+		}
+	double answer = (double)(tp+tn)/(tp+tn+fp+fn);
+	if (verboseLevel > 0)
+		std::cout << "Accuracy: " << answer << "\n";
+	toLog = toLog + "\t\tAccuracy=" + to_string((long double)answer) + "\n";
+	if (verboseLevel > 1)
 	{
-		for (int j = 0; j < filters.cols; j++)
-			cout << filters.at< Vec<float, 13> >(i, j)[0] << ", ";
-		cout << "\n";
+		std::cout << "True positives: " << tp << "\n";
+		std::cout << "True negatives: " << tn << "\n";
+		std::cout << "False positives: " << fp << "\n";
+		std::cout << "False negatives: " << fn << "\n";
+		std::cout << "Wrong values: " << wv << "\n";
 	}
-	*/
-	gc_test2( *image, *image_mask );
-	image = image_mask;
-    reset();
-    showImage();
+	return answer;
 }
 
-void GCApplication::reset()
+void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& image_mask_skel, const cv::Mat& filters,
+	cv::Mat& mask, double thresh, int iteration, int verboseLevel, string& toLog, double& accuracy, double& it_time)
 {
-    if( !mask.empty() )
-        mask.setTo(Scalar::all(GC_BGD));
-    bgdPxls.clear(); fgdPxls.clear();
-    prBgdPxls.clear();  prFgdPxls.clear();
+    if( iteration > 0 )
+	{
+		Mat temp;
+		mask.copyTo(temp);
+		
+		clock_t start = clock();
+		homology_grabcut( image, temp, filters, mask, thresh, rand() );
+		clock_t finish = clock();
+		it_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
+		if (verboseLevel > 0)
+			std::cout << "Answer for iteration " << iteration << " found in " << it_time << " seconds.\n";
+		toLog = toLog + "\t\tAnswer for iteration " + to_string((_Longlong)iteration) +
+			" found in " + to_string((long double)it_time) + " seconds.\n";
 
-    isInitialized = false;
-    rectState = NOT_SET;
-    lblsState = NOT_SET;
-    prLblsState = NOT_SET;
-    iterCount = 0;
-}
-
-void GCApplication::setImageAndWinName( const Mat& _image, const Mat& _image_mask, Mat& _image_mask_skel, const string& _winName  )
-{
-    if( _image.empty() || _winName.empty() )
-        return;
-    image = &_image;
-	image_mask = &_image_mask;
-	image_mask_skel = &_image_mask_skel;
-    winName = &_winName;
-    mask.create( image->size(), CV_8UC1);
-    reset();
-}
-
-void GCApplication::showImage() const
-{
-    if( image->empty() || winName->empty() )
-        return;
-
-    Mat res;
-    Mat binMask;
-    if( !isInitialized )
-        image->copyTo( res );
+		accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
+	}
     else
     {
-        getBinMask( mask, binMask );
-        image->copyTo( res, binMask );
-    }
+		clock_t start = clock();
+		homology_grabcut( image, image_mask_skel, filters, mask, thresh, rand() );
+		clock_t finish = clock();
+		it_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
+		if (verboseLevel > 0)
+			std::cout << "Answer for iteration " << iteration << " found in " << it_time << " seconds.\n";
+		toLog = toLog + "\t\tAnswer for iteration " + to_string((_Longlong)iteration) +
+			" found in " + to_string((long double)it_time) + " seconds.\n";
 
-    vector<Point>::const_iterator it;
-    for( it = bgdPxls.begin(); it != bgdPxls.end(); ++it )
-        circle( res, *it, radius, BLUE, thickness );
-    for( it = fgdPxls.begin(); it != fgdPxls.end(); ++it )
-        circle( res, *it, radius, RED, thickness );
-    for( it = prBgdPxls.begin(); it != prBgdPxls.end(); ++it )
-        circle( res, *it, radius, LIGHTBLUE, thickness );
-    for( it = prFgdPxls.begin(); it != prFgdPxls.end(); ++it )
-        circle( res, *it, radius, PINK, thickness );
-
-    if( rectState == IN_PROCESS || rectState == SET )
-        rectangle( res, Point( rect.x, rect.y ), Point(rect.x + rect.width, rect.y + rect.height ), GREEN, 2);
-
-    imshow( *winName, res );
-}
-
-void GCApplication::setRectInMask()
-{
-    CV_Assert( !mask.empty() );
-    mask.setTo( GC_BGD );
-    rect.x = max(0, rect.x);
-    rect.y = max(0, rect.y);
-    rect.width = min(rect.width, image->cols-rect.x);
-    rect.height = min(rect.height, image->rows-rect.y);
-    (mask(rect)).setTo( Scalar(GC_PR_FGD) );
-}
-
-void GCApplication::setLblsInMask( int flags, Point p, bool isPr )
-{
-    vector<Point> *bpxls, *fpxls;
-    uchar bvalue, fvalue;
-    if( !isPr )
-    {
-        bpxls = &bgdPxls;
-        fpxls = &fgdPxls;
-        bvalue = GC_BGD;
-        fvalue = GC_FGD;
-    }
-    else
-    {
-        bpxls = &prBgdPxls;
-        fpxls = &prFgdPxls;
-        bvalue = GC_PR_BGD;
-        fvalue = GC_PR_FGD;
-    }
-    if( flags & BGD_KEY )
-    {
-        bpxls->push_back(p);
-        circle( mask, p, radius, bvalue, thickness );
-    }
-    if( flags & FGD_KEY )
-    {
-        fpxls->push_back(p);
-        circle( mask, p, radius, fvalue, thickness );
-    }
-}
-
-void GCApplication::mouseClick( int event, int x, int y, int flags, void* )
-{
-    // TODO add bad args check
-    switch( event )
-    {
-    case EVENT_LBUTTONDOWN: // set rect or GC_BGD(GC_FGD) labels
-        {
-            bool isb = (flags & BGD_KEY) != 0,
-                 isf = (flags & FGD_KEY) != 0;
-            if( rectState == NOT_SET && !isb && !isf )
-            {
-                rectState = IN_PROCESS;
-                rect = Rect( x, y, 1, 1 );
-            }
-            if ( (isb || isf) && rectState == SET )
-                lblsState = IN_PROCESS;
-        }
-        break;
-    case EVENT_RBUTTONDOWN: // set GC_PR_BGD(GC_PR_FGD) labels
-        {
-            bool isb = (flags & BGD_KEY) != 0,
-                 isf = (flags & FGD_KEY) != 0;
-            if ( (isb || isf) && rectState == SET )
-                prLblsState = IN_PROCESS;
-        }
-        break;
-    case EVENT_LBUTTONUP:
-        if( rectState == IN_PROCESS )
-        {
-            rect = Rect( Point(rect.x, rect.y), Point(x,y) );
-            rectState = SET;
-            setRectInMask();
-            CV_Assert( bgdPxls.empty() && fgdPxls.empty() && prBgdPxls.empty() && prFgdPxls.empty() );
-            showImage();
-        }
-        if( lblsState == IN_PROCESS )
-        {
-            setLblsInMask(flags, Point(x,y), false);
-            lblsState = SET;
-            showImage();
-        }
-        break;
-    case EVENT_RBUTTONUP:
-        if( prLblsState == IN_PROCESS )
-        {
-            setLblsInMask(flags, Point(x,y), true);
-            prLblsState = SET;
-            showImage();
-        }
-        break;
-    case EVENT_MOUSEMOVE:
-        if( rectState == IN_PROCESS )
-        {
-            rect = Rect( Point(rect.x, rect.y), Point(x,y) );
-            CV_Assert( bgdPxls.empty() && fgdPxls.empty() && prBgdPxls.empty() && prFgdPxls.empty() );
-            showImage();
-        }
-        else if( lblsState == IN_PROCESS )
-        {
-            setLblsInMask(flags, Point(x,y), false);
-            showImage();
-        }
-        else if( prLblsState == IN_PROCESS )
-        {
-            setLblsInMask(flags, Point(x,y), true);
-            showImage();
-        }
-        break;
-    }
-}
-
-int GCApplication::nextIter()
-{
-    if( isInitialized )
-        grabCut( *image, mask, rect, bgdModel, fgdModel, 1 );
-    else
-    {
-		if (mode == 0)
-		{
-			srand (time(NULL));
-			homology_grabcut( *image, *image_mask_skel, filters, mask, 0.10, rand() );
-
-			int tp = 0;
-			int tn = 0;
-			int fp = 0;
-			int fn = 0;
-			int wv = 0;
-			for (int i = 0; i < mask.rows; i++)
-				for (int j = 0; j < mask.cols; j++)
-				{
-					int value = (int)mask.at<uchar>(i, j);
-					int answer = (int)image_mask->at<uchar>(i, j);
-
-					if (value == GC_BGD || value == GC_PR_BGD)
-						value = GC_PR_BGD;
-					else value = GC_PR_FGD;
-					answer = answer / 255 + 2;
-
-					if (value == GC_PR_FGD && answer == GC_PR_FGD)
-						tp++;
-					else if (value == GC_PR_BGD && answer == GC_PR_BGD)
-						tn++;
-					else if (value == GC_PR_FGD && answer == GC_PR_BGD)
-						fp++;
-					else if (value == GC_PR_BGD && answer == GC_PR_FGD)
-						fn++;
-					else
-					{
-						wv++;
-						//std::cout << "Wrong value " << value << " or answer " << answer << "\n";
-					}
-				}
-			std::cout << "True positives: " << tp << "\n";
-			std::cout << "True negatives: " << tn << "\n";
-			std::cout << "False positives: " << fp << "\n";
-			std::cout << "False negatives: " << fn << "\n";
-			std::cout << "Wrong values: " << wv << "\n";
-		}
-		else
-		{
-			gc_test( *image, *image_mask );
-			*image_mask /= 255;
-			*image_mask += 2;
-			image_mask->copyTo( mask );
-			grabCut( *image, mask, rect, bgdModel, fgdModel, 1, GC_INIT_WITH_MASK );
-		}
-
-        isInitialized = true;
-    }
-    iterCount++;
-
-    bgdPxls.clear(); fgdPxls.clear();
-    prBgdPxls.clear(); prFgdPxls.clear();
-
-    return iterCount;
-}
-
-GCApplication gcapp;
-
-static void on_mouse( int event, int x, int y, int flags, void* param )
-{
-    gcapp.mouseClick( event, x, y, flags, param );
+		accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
+	}
 }
 
 int main( int argc, char** argv )
 {
+	// Randomization init
+	srand((unsigned int)time(NULL));
+
+	// Initialize paths
+	string out_path = "./answers/";
+
 	// Load the image
-	char* filename = argc >= 2 ? argv[1] : (char*)"grabcut_cow.png";
+	char* filename = argc >= 3 ? argv[2] : (char*)"grabcut_cow.png";
     Mat image = imread( filename, 1 );
     if( image.empty() )
     {
         cout << "\n Durn, couldn't read image filename " << filename << endl;
         return 1;
     }
+	
+	// Save original filename and begin log string
+	string toLog = "";
+	string original = "";
+	toLog = toLog + filename + "\n";
+	original = original + filename;
+	original.substr(0, original.length()-4);
 
 	// Load the mask
-	filename = argc >= 3 ? argv[2] : (char*)"grabcut_cow_mask.bmp";
+	filename = argc >= 4 ? argv[3] : (char*)"grabcut_cow_mask.bmp";
 	Mat image_mask = imread( filename, 1 );
     if( image_mask.empty() )
     {
@@ -371,7 +129,7 @@ int main( int argc, char** argv )
 	threshold(image_mask, image_mask, 10, 255, THRESH_BINARY);
 
 	// Load skel'd mask
-	filename = argc >= 4 ? argv[3] : (char*)"grabcut_cow_mask_skel.png";
+	filename = argc >= 5 ? argv[4] : (char*)"grabcut_cow_mask_skel.png";
 	Mat image_mask_skel = imread( filename, 1 );
     if( image_mask_skel.empty() )
     {
@@ -381,39 +139,46 @@ int main( int argc, char** argv )
 	cvtColor(image_mask_skel, image_mask_skel, COLOR_RGB2GRAY);
 	threshold(image_mask_skel, image_mask_skel, 10, 255, THRESH_BINARY);
 
-    help();
+	// Create filters
+	Mat filters;
+	create_filters(filters);
 
-    const string winName = "image";
-    namedWindow( winName, WINDOW_AUTOSIZE );
-    setMouseCallback( winName, on_mouse, 0 );
+	// Output mask
+	Mat mask;
+	mask.create(image.rows, image.cols, CV_8UC1);
 
-    gcapp.setImageAndWinName( image, image_mask, image_mask_skel, winName );
-    gcapp.showImage();
-
-    for(;;)
+    for(int thresh = 1; thresh <= 10; ++thresh)
     {
-        int c = waitKey(0);
-        switch( (char) c )
-        {
-        case '\x1b':
-            cout << "Exiting ..." << endl;
-            goto exit_main;
-        case 'r':
-            cout << endl;
-            gcapp.reset();
-            gcapp.showImage();
-            break;
-		case 't':
-			gcapp.test();
-			break;
-        case 'n':
-            gcapp.nextIter();
-            gcapp.showImage();
-            break;
-        }
-    }
+		double accuracy, it_time, total_time;
+		accuracy = it_time = total_time = 0.0;
+		Mat answer, bin_mask;
+		bin_mask.create( mask.size(), CV_8UC1 );
 
-exit_main:
-    destroyWindow( winName );
+		toLog = toLog + "\tThreshold=" + to_string((long double)thresh/10) + "\n";
+		for (int i = 0; i < 2; i++)
+		{
+			// Perform iteration
+			nextIter(image, image_mask, image_mask_skel, filters, mask, (double)thresh/10, i, 1, toLog, accuracy, it_time);
+			cv::threshold(mask, mask, 2.5, 255, THRESH_BINARY);
+
+			// Save answer
+			total_time += it_time;
+			bin_mask = mask & 1;
+			image.copyTo( answer, bin_mask );
+			string output_file = out_path + original + "_thresh" + to_string((long double)thresh/10) +
+				"_it" + to_string((_Longlong)i) +
+				"_ac" + to_string((long double)accuracy) +
+				"_time" + to_string((long double)total_time) + ".png";
+			imwrite( output_file, answer );
+		}
+		toLog = toLog + "\t\tTotal time=" + to_string((long double)total_time) + "\n";
+    }
+	// Initalize log file
+	filename = argc >= 2 ? argv[1] : (char*)"log.txt";
+	logFile.open( filename, ios::out | ios::ate | ios::app );
+	for (unsigned int i = 0; i < toLog.length(); i++)
+		logFile.write(&toLog.at(i), 1);
+	logFile.close();
+
     return 0;
 }

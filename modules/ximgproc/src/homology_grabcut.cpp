@@ -453,7 +453,7 @@ static void initGMMs_dc( const Mat& img, const Mat& mask, GMM_dc& bgdGMM, GMM_dc
     }
 	// Standard debug, none should be empty
     CV_Assert( !bgdSamples.empty() && !fgdSamples.empty() );
-	
+
 	// Transform vector of Vec3f into an actual 2D material
 	// Mat(int rows, int cols, int type, void* data, size_t step=AUTO_STEP) <- probably this one
     Mat _bgdSamples( (int)bgdSamples.size(), DOUBLE_CHANNELS, CV_32FC1, &bgdSamples[0][0] );
@@ -768,7 +768,8 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 
 	// Load our output and initial masks
 	Mat& out_mask = _out_mask.getMatRef();
-    Mat mask = _mask.getMat(); // Shrunk mask, values given are either assumed 255 or 0
+    Mat mask; // Shrunk mask, values given are either assumed 255 or 0
+	_mask.getMat().copyTo(mask);
 
 	// Randomizing values of input mask for given threshold
 	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
@@ -786,55 +787,8 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	
 	// Shrink our image and mask
     Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
-    Mat bgdModel = Mat(); // Our local model
-    Mat fgdModel = Mat(); // Same as above
-
-
-	/*
-	// Prepare our Expectation Maximization models
-	Ptr< EM > bgdEM, fgdEM;
-	bgdEM = cv::ml::EM::create();
-	fgdEM = cv::ml::EM::create();
-	
-	// Load our pixel data to proper vectors
-	std::vector< Vecd_dc > bgdPixels;
-	std::vector< Vecd_dc > fgdPixels;
-	for (int i = 0; i < mask.rows; i++)
-		for (int j = 0; j < mask.cols; j++)
-		{
-			uchar flag = mask.at<uchar>(i, j);
-			if (flag == GC_BGD || flag == GC_PR_BGD)
-				bgdPixels.push_back( img_dc->at<Vecd_dc>( i, j ) );
-			else fgdPixels.push_back( img_dc->at<Vecd_dc>( i, j ) );
-		}
-	
-	// No vector should be empty!
-    CV_Assert( !bgdPixels.empty() && !fgdPixels.empty() );
-
-	// Transform vectors
-    Mat bgdSamples( (int)bgdPixels.size(), DOUBLE_CHANNELS, CV_64FC1, &bgdPixels[0][0] );
-    Mat fgdSamples( (int)fgdPixels.size(), DOUBLE_CHANNELS, CV_64FC1, &fgdPixels[0][0] );
-
-	// Temporary matrices to store the best assigned clusters
-	Mat bgdLabels, fgdLabels;
-	Mat bgdProbs, fgdProbs;
-
-	// Train our initial data using K-means algorythm as base (done by function trainEM)
-	bgdEM->trainEM( bgdSamples );//, noArray(), bgdLabels, bgdProbs );
-	fgdEM->trainEM( fgdSamples );//, noArray(), fgdLabels, fgdProbs );
-
-	for (int i = 0; i < bgdProbs.rows; i++)
-		for (int j = 0; j < bgdProbs.cols; j++)
-			if (j != bgdLabels.at<int>(i, 0))
-				bgdProbs.at<double>(i, j) = 0.0;
-			else bgdProbs.at<double>(i, j) = 1.0;
-	for (int i = 0; i < fgdProbs.rows; i++)
-		for (int j = 0; j < fgdProbs.cols; j++)
-			if (j != fgdLabels.at<int>(i, 0))
-				fgdProbs.at<double>(i, j) = 0.0;
-			else fgdProbs.at<double>(i, j) = 1.0;
-	*/
-
+	Mat bgdModel = Mat(); // Our local model
+	Mat fgdModel = Mat(); // Same as above
 
 	// Building GMMs for local models
     GMM_dc bgdGMM( bgdModel ), fgdGMM( fgdModel );
@@ -861,7 +815,7 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 		
 		// Check the image at mask, and depending if it's FGD or BGD, return the number of component that suits it most.
 		// Answer (component numbers) is stored in compIdxs, it does not store anything else
-        assignGMMsComponents_dc( *img_dc, mask, bgdGMM, fgdGMM, compIdxs );
+		assignGMMsComponents_dc( *img_dc, mask, bgdGMM, fgdGMM, compIdxs );
 
 		// This one adds samples to proper GMMs based on best component
 		// Strengthens our predictions?

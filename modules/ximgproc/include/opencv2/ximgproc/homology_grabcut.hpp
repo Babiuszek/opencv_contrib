@@ -58,7 +58,8 @@ namespace cv
 	
 	@param mask Input mask. Supported formats: CV_8UC1. Image size must match the one given by
 	input image. An array of values 0 and 255 for initialization, any other value will result
-	in wrong answer. The image is assumed to be skeletized mask of input image.
+	in wrong answer. The image is assumed to be skeletized mask of input image. To transform
+	out mask into next step mask use OpenCV threshold function with a threshold of 2.5.
 
 	@param filters An array of filters for usage of algorythm. Each filter is seperately
 	applied to its own version of grayscaled input image. May be empty.
@@ -67,7 +68,7 @@ namespace cv
 	values which are either GC_PR_FGD or GC_PR_BGD.
 
 	@param thresh Threshold value between 0.0 and 1.0. It controls how many points of input
-	mask are taken into account, 1-thresh points are ignored and assumed as background.
+	mask are taken into account, 1-Threshold points are ignored and assumed as background.
 
 	@param seed Seed for initializing RNG class.
 	
