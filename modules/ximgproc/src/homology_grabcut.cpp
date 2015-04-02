@@ -916,8 +916,8 @@ void create_filters(OutputArray _filters, int size)
 	// Parallel execution using C++11 lambda.
 	int hsup = (size-1)/2;
 	Point p;
-	for (p.x = 0; p.x < f.rows; p.x++)
-		for (p.y = 0; p.y < f.cols; p.y++)
+	for (p.x = 0; p.x < filters.rows; p.x++)
+		for (p.y = 0; p.y < filters.cols; p.y++)
 		{
 			Vecf_f& value = filters.at<Vecf_f>(p);
 			value[0] = sqrt( (float)( (-hsup+p.x)*(-hsup+p.x) + (-hsup+p.y)*(-hsup+p.y) ) );
