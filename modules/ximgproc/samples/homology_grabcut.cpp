@@ -9,7 +9,28 @@
 using namespace std;
 using namespace cv;
 
-ofstream logFile;
+fstream logFile;
+
+enum MODE {
+	ONE_STEP	= 0,
+	TWO_STEP	= 1,
+	END			= 2
+};
+
+int getID(string& line)
+{
+	// Get the first number (ID)
+	int l = 0;
+	while (line.at(l) != ';')
+		++l;
+	line = line.substr(0, l);
+
+	// Transform it into an integer
+	int Answer = 0;
+	for (unsigned int i = 0; i < line.length(); ++i)
+		Answer = Answer*10 + line.at(i) - 48;
+	return Answer;
+}
 
 string toString(float value)
 {
@@ -25,7 +46,7 @@ string toString(float value)
 	}
 
 	// Integer
-	int t = floor(value);
+	int t = (int)floor(value);
 	if (t == 0)
 		Ans = Ans + "0";
 	value -= t;
@@ -41,7 +62,7 @@ string toString(float value)
 
 	// Fraction
 	string fraction = "";
-	t = floor(value*1000000);
+	t = (int)floor(value*1000000);
 	while (t > 0)
 	{
 		c = 48 + t % 10;
@@ -88,7 +109,6 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 	double answer = (double)(tp+tn)/(tp+tn+fp+fn);
 	if (verboseLevel > 0)
 		std::cout << "Accuracy: " << answer << "\n";
-	toLog = toLog + "\t\tAccuracy=" + toString(answer) + "\n";
 	if (verboseLevel > 1)
 	{
 		std::cout << "True positives: " << tp << "\n";
@@ -101,37 +121,20 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 }
 
 void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& image_mask_skel, const cv::Mat& filters,
-	cv::Mat& mask, double thresh, int iteration, int verboseLevel, string& toLog, double& accuracy, double& it_time)
+	cv::Mat& mask, double skelOccup, int iterCount, double epsilon, int verboseLevel, int mode,
+	string& toLog, double& accuracy, double& it_time, int& total_iters)
 {
-    if( iteration > 0 )
-	{
-		Mat temp;
-		mask.copyTo(temp);
-		
-		clock_t start = clock();
-		homology_grabcut( image, temp, filters, mask, thresh, rand() );
-		clock_t finish = clock();
-		it_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
-		if (verboseLevel > 0)
-			std::cout << "Answer for iteration " << iteration << " found in " << it_time << " seconds.\n";
-		toLog = toLog + "\t\tAnswer for iteration " + toString(iteration) +
-			" found in " + toString(it_time) + " seconds.\n";
+	// Perform grabcut and measure it's time and number of iterations
+	clock_t start = clock();
+	if (mode == ONE_STEP)
+		total_iters = one_step_grabcut( image, image_mask, image_mask, mask, skelOccup, rand(), iterCount, epsilon);
+	else if (mode == TWO_STEP)
+		total_iters = two_step_grabcut( image, image_mask, filters, image_mask, mask, skelOccup, rand(), iterCount, epsilon );
+	clock_t finish = clock();
+	it_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
-		accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
-	}
-    else
-    {
-		clock_t start = clock();
-		homology_grabcut( image, image_mask_skel, filters, mask, thresh, rand() );
-		clock_t finish = clock();
-		it_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
-		if (verboseLevel > 0)
-			std::cout << "Answer for iteration " << iteration << " found in " << it_time << " seconds.\n";
-		toLog = toLog + "\t\tAnswer for iteration " + toString(iteration) +
-			" found in " + toString(it_time) + " seconds.\n";
-
-		accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
-	}
+	// Calculate and save accuracy
+	accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
 }
 
 int main( int argc, char** argv )
@@ -141,6 +144,9 @@ int main( int argc, char** argv )
 
 	// Initialize paths
 	string out_path = "./answers/";
+	int iterCount = 0;
+	double epsilon = 0.001;
+	int total_iters;
 
 	// Load the image
 	char* filename = argc >= 3 ? argv[2] : (char*)"grabcut_cow.png";
@@ -151,12 +157,24 @@ int main( int argc, char** argv )
         return 1;
     }
 	
-	// Save original filename and begin log string
+	// Initialize values for logging
 	string toLog = "";
 	string original = "";
-	toLog = toLog + filename + "\n";
 	original = original + filename;
-	original.substr(0, original.length()-4);
+	original = original.substr(0, original.length()-4);
+	int id = 0;
+
+	// Get the last id used in our csv file
+	filename = argc >= 2 ? argv[1] : (char*)"log.csv";
+	logFile.open( filename, ios::in );
+	string line;
+	getline( logFile, line );
+	while (!line.empty())
+	{
+		id = getID( line ) + 1;
+		getline( logFile, line );
+	}
+	logFile.close();
 
 	// Load the mask
 	filename = argc >= 4 ? argv[3] : (char*)"grabcut_cow_mask.png";
@@ -188,34 +206,33 @@ int main( int argc, char** argv )
 	Mat mask;
 	mask.create(image.rows, image.cols, CV_8UC1);
 
-    for(int thresh = 1; thresh <= 10; ++thresh)
+    for(int skelOccup = 1; skelOccup <= 5; ++skelOccup)
     {
-		double accuracy, it_time, total_time;
-		accuracy = it_time = total_time = 0.0;
-		Mat answer, bin_mask;
+		double accuracy, it_time;
+		accuracy = it_time = 0.0;
+		Mat bin_mask;
 		bin_mask.create( mask.size(), CV_8UC1 );
 
-		toLog = toLog + "\tThreshold=" + toString((long double)thresh/10) + "\n";
-		for (int i = 0; i < 2; i++)
+		for (int mode = ONE_STEP; mode < END; mode++)
 		{
 			// Perform iteration
-			nextIter(image, image_mask, image_mask_skel, filters, mask, (double)thresh/10, i, 1, toLog, accuracy, it_time);
-			cv::threshold(mask, mask, 2.5, 255, THRESH_BINARY);
+			nextIter(image, image_mask, image_mask_skel, filters,
+				mask, (double)skelOccup/10, iterCount, epsilon, 1, mode,
+				toLog, accuracy, it_time, total_iters);
+			cv::threshold(mask, mask, 2.5, 255.0, THRESH_BINARY);
 
-			// Save answer
-			total_time += it_time;
-			bin_mask = mask & 1;
-			image.copyTo( answer, bin_mask );
-			string output_file = out_path + original + "_thresh" + toString(thresh/10) +
-				"_it" + toString(i) +
-				"_ac" + toString(accuracy) +
-				"_time" + toString(total_time) + ".png";
-			imwrite( output_file, answer );
+			// Save calculated image mask
+			string output_file = out_path + original + "_" + toString((float)id) + ".png";
+			imwrite( output_file, mask );
+			// Update log string
+			toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
+				toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
+				toString((float)it_time) + ";" + output_file + "\n";
+			++id;
 		}
-		toLog = toLog + "\t\tTotal time=" + toString(total_time) + "\n";
     }
 	// Initalize log file
-	filename = argc >= 2 ? argv[1] : (char*)"log.txt";
+	filename = argc >= 2 ? argv[1] : (char*)"log.csv";
 	logFile.open( filename, ios::out | ios::ate | ios::app );
 	for (unsigned int i = 0; i < toLog.length(); i++)
 		logFile.write(&toLog.at(i), 1);

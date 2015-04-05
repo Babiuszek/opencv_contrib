@@ -110,8 +110,8 @@ void thinning(const cv::Mat& src, cv::Mat& dst)
         thinningIteration(dst, 0);
         thinningIteration(dst, 1);
         //cv::absdiff(dst, prev, diff);
-		count_p = sum( prev )(0);
-		count_c = sum( dst )(0);
+		count_p = (int)sum( prev )(0);
+		count_c = (int)sum( dst )(0);
         dst.copyTo(prev);
     } 
     //while (cv::countNonZero(diff) > 0);

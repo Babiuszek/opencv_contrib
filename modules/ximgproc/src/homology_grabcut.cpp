@@ -58,12 +58,10 @@ namespace cv {
 
 #define FILTERS 13
 #define CHANNELS 14
-#define DOUBLE_CHANNELS 2*CHANNELS
 
-typedef Vec<float, FILTERS> Vecf_f;
-typedef Vec<float, DOUBLE_CHANNELS> Vecf_dc;
-typedef Vec<double, CHANNELS> Vecd_c;
-typedef Vec<double, DOUBLE_CHANNELS> Vecd_dc;
+#define Vecf_f	Vec<float, FILTERS>
+#define Vecd_c	Vec<double, CHANNELS>
+#define Vecd_dc Vec<double, 2*CHANNELS>
 
 /*
 This is implementation of image segmentation algorithm GrabCut described in
@@ -74,19 +72,22 @@ Carsten Rother, Vladimir Kolmogorov, Andrew Blake.
 /*
  GMM - Gaussian Mixture Model DOUBLE_CHANNELS dimensional
 */
-class GMM_dc
+template <typename DataType, int DataLength> class GMM
 {
 public:
+	// Types for ease of reference
+	typedef Vec< DataType, DataLength > DataVec;
+	// Static component amount for division
     static const int componentsCount = 5;
-	static const int dimension = DOUBLE_CHANNELS;
 
-    GMM_dc( Mat& _model );
-    double operator()( const Vecd_dc color ) const;
-    double operator()( int ci, const Vecd_dc color ) const;
-    int whichComponent( const Vecd_dc color ) const;
+	// The class itself
+    GMM( Mat& _model );
+    double operator()( const DataVec color ) const;
+    double operator()( int ci, const DataVec color ) const;
+    int whichComponent( const DataVec color ) const;
 
     void initLearning();
-    void addSample( int ci, const Vecd_dc color );
+    void addSample( int ci, const DataVec color );
     void endLearning();
 
 private:
@@ -96,17 +97,17 @@ private:
     double* mean;
     double* cov;
 
-    double inverseCovs[componentsCount][dimension][dimension];
+    double inverseCovs[componentsCount][DataLength][DataLength];
     double covDeterms[componentsCount];
 
-    double sums[componentsCount][dimension];
-    double prods[componentsCount][dimension][dimension];
+    double sums[componentsCount][DataLength];
+    double prods[componentsCount][DataLength][DataLength];
     int sampleCounts[componentsCount];
     int totalSampleCount;
 };
-GMM_dc::GMM_dc( Mat& _model )
+template <typename DataType, int DataLength> GMM< DataType, DataLength >::GMM( Mat& _model )
 {
-    const int modelSize = dimension/*mean*/ + dimension*dimension/*covariance*/ + 1/*component weight*/;
+    const int modelSize = DataLength/*mean*/ + DataLength*DataLength/*covariance*/ + 1/*component weight*/;
     if( _model.empty() )
     {
         _model.create( 1, modelSize*componentsCount, CV_64FC1 );
@@ -119,17 +120,17 @@ GMM_dc::GMM_dc( Mat& _model )
 
 	// coefs has size of ComponentCount (each component has its own coefficient)
     coefs = model.ptr<double>(0);
-	// Mean has the size of Dimension*ComponentCount (each dimension has its own mean for each component)
+	// Mean has the size of DataLength*ComponentCount (each DataLength has its own mean for each component)
     mean = coefs + componentsCount;
 	// The rest is simply taken by Covariance matrices
-    cov = mean + dimension*componentsCount;
+    cov = mean + DataLength*componentsCount;
 
 	// Initialize our GMMs
     for( int ci = 0; ci < componentsCount; ci++ )
         if( coefs[ci] > 0 )
              calcInverseCovAndDeterm( ci );
 }
-double GMM_dc::operator()( const Vecd_dc color ) const
+template <typename DataType, int DataLength> double GMM< DataType, DataLength >::operator()( const DataVec color ) const
 {
     double res = 0;
 	// Sum of all components coefs * (
@@ -137,7 +138,7 @@ double GMM_dc::operator()( const Vecd_dc color ) const
         res += coefs[ci] * (*this)(ci, color );
     return res;
 }
-double GMM_dc::operator()( int ci, const Vecd_dc color ) const
+template <typename DataType, int DataLength> double GMM< DataType, DataLength >::operator()( int ci, const DataVec color ) const
 {
     double res = 0;
 	// If possibility exists
@@ -146,9 +147,9 @@ double GMM_dc::operator()( int ci, const Vecd_dc color ) const
 		// Make sure Determ is not 0, the matrix is not singular
         CV_Assert( covDeterms[ci] != 0 );
 		// Find the difference of our color to the mean of that particular component
-        Vecd_dc diff = color;
-        double* m = mean + dimension*ci;
-		for (int i = 0; i < dimension; i++)
+        Vec< DataType, DataLength > diff = color;
+        double* m = mean + DataLength*ci;
+		for (int i = 0; i < DataLength; i++)
 			diff[i] -= m[i];
 		// Calculate multiplier (component sum(inverseCov*diff)
 		/*
@@ -156,17 +157,17 @@ double GMM_dc::operator()( int ci, const Vecd_dc color ) const
                    + diff[1]*(diff[0]*inverseCovs[ci][0][1] + diff[1]*inverseCovs[ci][1][1] + diff[2]*inverseCovs[ci][2][1])
                    + diff[2]*(diff[0]*inverseCovs[ci][0][2] + diff[1]*inverseCovs[ci][1][2] + diff[2]*inverseCovs[ci][2][2]);
 				   */
-		// The below loop simulates the formula above expanded into n dimensions
+		// The below loop simulates the formula above expanded into n DataLengths
 		double mult = 0.0;
-		for (int i = 0; i < dimension; i++)
-			for (int j = 0; j < dimension; j++)
+		for (int i = 0; i < DataLength; i++)
+			for (int j = 0; j < DataLength; j++)
 				mult += diff[i]*diff[j]*inverseCovs[ci][j][i];
         // Calculate return value?
 		res = 1.0f/sqrt(covDeterms[ci]) * exp(-0.5f*mult);
     }
     return res;
 }
-int GMM_dc::whichComponent( const Vecd_dc color ) const
+template <typename DataType, int DataLength> int GMM< DataType, DataLength >::whichComponent( const DataVec color ) const
 {
     int k = 0;
     double max = 0;
@@ -182,16 +183,16 @@ int GMM_dc::whichComponent( const Vecd_dc color ) const
     }
     return k;
 }
-void GMM_dc::initLearning()
+template <typename DataType, int DataLength> void GMM< DataType, DataLength >::initLearning()
 {
 	// Initialize every value we care about to 0
     for( int ci = 0; ci < componentsCount; ci++)
     {
 		// All sums and prods of that component are set to 0
-		for (int i = 0; i < dimension; i++)
+		for (int i = 0; i < DataLength; i++)
 		{
 			sums[ci][i] = 0;
-			for (int j = 0; j < dimension; j++)
+			for (int j = 0; j < DataLength; j++)
 				prods[ci][i][j] = 0;
 		}
 		// Same for it's sample counts
@@ -199,20 +200,20 @@ void GMM_dc::initLearning()
     }
     totalSampleCount = 0;
 }
-void GMM_dc::addSample( int ci, const Vecd_dc color )
+template <typename DataType, int DataLength> void GMM< DataType, DataLength >::addSample( int ci, const DataVec color )
 {
 	// Add to sums
-	for (int i = 0; i < dimension; i++)
+	for (int i = 0; i < DataLength; i++)
 		sums[ci][i] += color[i];
 	// Change prods
-	for (int i = 0; i < dimension; i++)
-		for (int j = 0; j < dimension; j++)
+	for (int i = 0; i < DataLength; i++)
+		for (int j = 0; j < DataLength; j++)
 			prods[ci][i][j] += color[i]*color[j];
 	// Increase our sample counters
     sampleCounts[ci]++;
     totalSampleCount++;
 }
-void GMM_dc::endLearning()
+template <typename DataType, int DataLength> void GMM< DataType, DataLength >::endLearning()
 {
 	// Learning is done
     const double variance = 0.01;
@@ -228,24 +229,24 @@ void GMM_dc::endLearning()
             coefs[ci] = (double)n/totalSampleCount;
 
 			// Means, initialize the pointer
-            double* m = mean + dimension*ci;
-			for (int i = 0; i < dimension; i++)
+            double* m = mean + DataLength*ci;
+			for (int i = 0; i < DataLength; i++)
 				m[i] = sums[ci][i]/n; // Set all the means
 
 			// Covariance matrix
-            double* c = cov + dimension*dimension*ci;
-			// The loops below simulate the formulas above for more dimensions
+            double* c = cov + DataLength*DataLength*ci;
+			// The loops below simulate the formulas above for more DataLengths
 			// cov(X, Y) = E(X * Y) - EX * EY; where E is expected value
-			for (int i = 0; i < dimension; i++)
-				for (int j = 0; j < dimension; j++)
-					c[dimension*i+j] = prods[ci][i][j]/n - m[i]*m[j];
+			for (int i = 0; i < DataLength; i++)
+				for (int j = 0; j < DataLength; j++)
+					c[DataLength*i+j] = prods[ci][i][j]/n - m[i]*m[j];
 
 			// Calculate determinant
 			// We first write our data into a temporary Mat
 			Mat c_mat;
-			c_mat.create(dimension, dimension, CV_64FC1);
-			for (int i = 0; i < dimension; i++)
-				for (int j = 0; j < dimension; j++)
+			c_mat.create(DataLength, DataLength, CV_64FC1);
+			for (int i = 0; i < DataLength; i++)
+				for (int j = 0; j < DataLength; j++)
 					c_mat.at<double>(i, j) = prods[ci][i][j]/n - m[i]*m[j];
 			
 			//double dtrm = c[0]*(c[4]*c[8]-c[5]*c[7]) - c[1]*(c[3]*c[8]-c[5]*c[6]) + c[2]*(c[3]*c[7]-c[4]*c[6]);
@@ -256,7 +257,7 @@ void GMM_dc::endLearning()
             {
                 // Adds the white noise to avoid singular covariance matrix
 				// We change the diagonal. This is more so to avoid marginally negative determinant
-				for (int i = 0; i < dimension*dimension; i = i + dimension + 1)
+				for (int i = 0; i < DataLength*DataLength; i = i + DataLength + 1)
 					c[i] += variance;
             }
 
@@ -264,20 +265,20 @@ void GMM_dc::endLearning()
         }
     }
 }
-void GMM_dc::calcInverseCovAndDeterm( int ci )
+template <typename DataType, int DataLength> void GMM< DataType, DataLength >::calcInverseCovAndDeterm( int ci )
 {
     if( coefs[ci] > 0 )
     {
 		// Initialize our covariance matrix
-        double *c = cov + dimension*dimension*ci;
+        double *c = cov + DataLength*DataLength*ci;
 		
 		// Calculate determinant
 		// We first write our data into a temporary Mat
 		Mat c_mat;
-		c_mat.create(dimension, dimension, CV_64FC1);
-		for (int i = 0; i < dimension; i++)
-			for (int j = 0; j < dimension; j++)
-				c_mat.at<double>(i, j) = c[dimension*i+j];
+		c_mat.create(DataLength, DataLength, CV_64FC1);
+		for (int i = 0; i < DataLength; i++)
+			for (int j = 0; j < DataLength; j++)
+				c_mat.at<double>(i, j) = c[DataLength*i+j];
         //double dtrm =
         //      covDeterms[ci] = c[0]*(c[4]*c[8]-c[5]*c[7]) - c[1]*(c[3]*c[8]-c[5]*c[6]) + c[2]*(c[3]*c[7]-c[4]*c[6]);
 		// TO DO: Find out why in the hell Determ can be less than 0, although barely
@@ -286,14 +287,14 @@ void GMM_dc::calcInverseCovAndDeterm( int ci )
 
 		// Calculate inverse covariance matrix
 		Mat c_inv;
-		c_inv.create(dimension, dimension, CV_64FC1);
+		c_inv.create(DataLength, DataLength, CV_64FC1);
 		double ans = invert(c_mat, c_inv);
 		// Make sure not singular, using invert function output;
         CV_Assert( ans != 0 );
 
 		// Copy ou answer to GMM data
-		for (int i = 0; i < dimension; i++)
-			for (int j = 0; j < dimension; j++)
+		for (int i = 0; i < DataLength; i++)
+			for (int j = 0; j < DataLength; j++)
 				inverseCovs[ci][i][j] = c_inv.at<double>(i, j);
     }
 }
@@ -314,9 +315,9 @@ static void checkMask( const Mat& img, const Mat& mask )
         for( int x = 0; x < mask.cols; x++ )
         {
             uchar val = mask.at<uchar>(y,x);
-            if( val!=GC_BGD && val!=GC_FGD && val!=GC_PR_BGD && val!=GC_PR_FGD )
-                CV_Error( CV_StsBadArg, "mask element value must be equel"
-                    "GC_BGD or GC_FGD or GC_PR_BGD or GC_PR_FGD" );
+            if( val!=GC_PR_BGD && val!=GC_PR_FGD )
+                CV_Error( CV_StsBadArg, "mask element value must be equal"
+                    "GC_PR_BGD or GC_PR_FGD" );
         }
     }
 }
@@ -338,32 +339,33 @@ static void initMaskWithRect( Mat& mask, Size imgSize, Rect rect )
 }
 
 //====================[ Multi-dimensional versions of original functions ]=====================
-static double calcBeta_dc( const Mat& img )
+template <typename DataType, int DataLength> static
+double calcBeta( const Mat& img )
 {
     double beta = 0;
     for( int y = 0; y < img.rows; y++ )
     {
         for( int x = 0; x < img.cols; x++ )
         {
-            Vecd_dc color = img.at<Vecd_dc>(y,x);
+            Vec< DataType, DataLength > color = img.at< Vec< DataType, DataLength > >(y,x);
             if( x>0 ) // left
             {
-                Vecd_dc diff = color - img.at<Vecd_dc>(y,x-1);
+                Vec< DataType, DataLength > diff = color - img.at< Vec< DataType, DataLength > >(y,x-1);
                 beta += diff.dot(diff);
             }
             if( y>0 && x>0 ) // upleft
             {
-                Vecd_dc diff = color - img.at<Vecd_dc>(y-1,x-1);
+                Vec< DataType, DataLength > diff = color - img.at< Vec< DataType, DataLength > >(y-1,x-1);
                 beta += diff.dot(diff);
             }
             if( y>0 ) // up
             {
-                Vecd_dc diff = color - img.at<Vecd_dc>(y-1,x);
+                Vec< DataType, DataLength > diff = color - img.at< Vec< DataType, DataLength > >(y-1,x);
                 beta += diff.dot(diff);
             }
             if( y>0 && x<img.cols-1) // upright
             {
-                Vecd_dc diff = color - img.at<Vecd_dc>(y-1,x+1);
+                Vec< DataType, DataLength > diff = color - img.at< Vec< DataType, DataLength > >(y-1,x+1);
                 beta += diff.dot(diff);
             }
         }
@@ -376,7 +378,8 @@ static double calcBeta_dc( const Mat& img )
     return beta;
 }
 
-static void calcNWeights_dc( const Mat& img, Mat& leftW, Mat& upleftW, Mat& upW, Mat& uprightW, double beta, double gamma )
+template <typename ImgType, typename DataType, int DataLength>
+static void calcNWeights( const Mat& img, Mat& leftW, Mat& upleftW, Mat& upW, Mat& uprightW, double beta, double gamma )
 {
 	// gamma is 50 and used for straight edges, gammaDivSqrt2 is used for diagonal ones
     const double gammaDivSqrt2 = gamma / std::sqrt(2.0f);
@@ -398,31 +401,35 @@ static void calcNWeights_dc( const Mat& img, Mat& leftW, Mat& upleftW, Mat& upW,
     {
         for( int x = 0; x < img.cols; x++ )
         {
-            Vecd_dc color = img.at<Vecd_dc>(y,x);
+            Vec< DataType, DataLength > color = (Vec<DataType, DataLength>)img.at< Vec< ImgType, DataLength > >(y,x);
             if( x-1>=0 ) // left
             {
-                Vecd_dc diff = color - img.at<Vecd_dc>(y,x-1);
+                Vec< DataType, DataLength > diff = color - 
+					(Vec<DataType, DataLength>)img.at< Vec< ImgType, DataLength > >(y,x-1);
                 leftW.at<double>(y,x) = gamma * exp(-beta*diff.dot(diff));
             }
             else
                 leftW.at<double>(y,x) = 0;
             if( x-1>=0 && y-1>=0 ) // upleft
             {
-                Vecd_dc diff = color - img.at<Vecd_dc>(y-1,x-1);
+                Vec< DataType, DataLength > diff = color - 
+					(Vec<DataType, DataLength>)img.at< Vec< ImgType, DataLength > >(y-1,x-1);
                 upleftW.at<double>(y,x) = gammaDivSqrt2 * exp(-beta*diff.dot(diff));
             }
             else
                 upleftW.at<double>(y,x) = 0;
             if( y-1>=0 ) // up
             {
-                Vecd_dc diff = color - img.at<Vecd_dc>(y-1,x);
+                Vec< DataType, DataLength > diff = color - 
+					(Vec<DataType, DataLength>)img.at< Vec< ImgType, DataLength > >(y-1,x);
                 upW.at<double>(y,x) = gamma * exp(-beta*diff.dot(diff));
             }
             else
                 upW.at<double>(y,x) = 0;
             if( x+1<img.cols && y-1>=0 ) // upright
             {
-                Vecd_dc diff = color - img.at<Vecd_dc>(y-1,x+1);
+                Vec< DataType, DataLength > diff = color - 
+					(Vec<DataType, DataLength>)img.at< Vec< ImgType, DataLength > >(y-1,x+1);
                 uprightW.at<double>(y,x) = gammaDivSqrt2 * exp(-beta*diff.dot(diff));
             }
             else
@@ -431,7 +438,9 @@ static void calcNWeights_dc( const Mat& img, Mat& leftW, Mat& upleftW, Mat& upW,
     }
 }
 
-static void initGMMs_dc( const Mat& img, const Mat& mask, GMM_dc& bgdGMM, GMM_dc& fgdGMM )
+template <typename ImgType, typename DataType, int DataLength>
+static void initGMMs( const Mat& img, const Mat& mask,
+	GMM< DataType, DataLength >& bgdGMM, GMM< DataType, DataLength >& fgdGMM )
 {
 	// Always 10 iterations, always clustering into 2 centers (logical)
     const int kMeansItCount = 10;
@@ -439,16 +448,16 @@ static void initGMMs_dc( const Mat& img, const Mat& mask, GMM_dc& bgdGMM, GMM_dc
 
 	// Create vectors representing sumples and push our points into proper containers
     Mat bgdLabels, fgdLabels;
-    std::vector<Vecf_dc> bgdSamples, fgdSamples;
+    std::vector< Vec< float, DataLength > > bgdSamples, fgdSamples;
     Point p;
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
         for( p.x = 0; p.x < img.cols; p.x++ )
         {
             if( mask.at<uchar>(p) == GC_BGD || mask.at<uchar>(p) == GC_PR_BGD )
-                bgdSamples.push_back( (Vecf_dc)img.at<Vecd_dc>(p) );
+                bgdSamples.push_back( (Vec< float, DataLength >)img.at< Vec< ImgType, DataLength > >(p) );
             else // GC_FGD | GC_PR_FGD
-                fgdSamples.push_back( (Vecf_dc)img.at<Vecd_dc>(p) );
+                fgdSamples.push_back( (Vec< float, DataLength >)img.at< Vec< ImgType, DataLength > >(p) );
         }
     }
 	// Standard debug, none should be empty
@@ -456,16 +465,16 @@ static void initGMMs_dc( const Mat& img, const Mat& mask, GMM_dc& bgdGMM, GMM_dc
 
 	// Transform vector of Vec3f into an actual 2D material
 	// Mat(int rows, int cols, int type, void* data, size_t step=AUTO_STEP) <- probably this one
-    Mat _bgdSamples( (int)bgdSamples.size(), DOUBLE_CHANNELS, CV_32FC1, &bgdSamples[0][0] );
+    Mat _bgdSamples( (int)bgdSamples.size(), DataLength, CV_32FC1, &bgdSamples[0][0] );
 	// Run the K-means algorythm
 	// (_data = bgdSamples, K=componentsCount(5), _bestLabels=bgdLabels(output),
 	//	TermCriteria, attempts=0, flags=kMeansType(2), _centers=noArray(default))
-    kmeans( _bgdSamples, GMM_dc::componentsCount, bgdLabels,
+    kmeans( _bgdSamples, GMM< DataType, DataLength >::componentsCount, bgdLabels,
             TermCriteria( CV_TERMCRIT_ITER, kMeansItCount, 0.0), 0, kMeansType );
 
 	// Do the same for FGD...
-	Mat _fgdSamples( (int)fgdSamples.size(), DOUBLE_CHANNELS, CV_32FC1, &fgdSamples[0][0] );
-    kmeans( _fgdSamples, GMM_dc::componentsCount, fgdLabels,
+	Mat _fgdSamples( (int)fgdSamples.size(), DataLength, CV_32FC1, &fgdSamples[0][0] );
+    kmeans( _fgdSamples, GMM< DataType, DataLength >::componentsCount, fgdLabels,
             TermCriteria( CV_TERMCRIT_ITER, kMeansItCount, 0.0), 0, kMeansType );
 
 	// Learn GMMs
@@ -480,26 +489,30 @@ static void initGMMs_dc( const Mat& img, const Mat& mask, GMM_dc& bgdGMM, GMM_dc
     fgdGMM.endLearning();
 }
 
-static void assignGMMsComponents_dc( const Mat& img, const Mat& mask, const GMM_dc& bgdGMM, const GMM_dc& fgdGMM, Mat& compIdxs )
+template <typename ImgType, typename DataType, int DataLength>
+static void assignGMMsComponents( const Mat& img, const Mat& mask,
+	const GMM< DataType, DataLength >& bgdGMM, const GMM< DataType, DataLength >& fgdGMM, Mat& compIdxs )
 {
     Point p;
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
         for( p.x = 0; p.x < img.cols; p.x++ )
         {
-            Vecd_dc color = img.at<Vecd_dc>(p);
+            Vec< DataType, DataLength > color = (Vec< DataType, DataLength >)img.at< Vec< ImgType, DataLength > >(p);
             compIdxs.at<int>(p) = mask.at<uchar>(p) == GC_BGD || mask.at<uchar>(p) == GC_PR_BGD ?
                 bgdGMM.whichComponent(color) : fgdGMM.whichComponent(color);
         }
     }
 }
 
-static void learnGMMs_dc( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM_dc& bgdGMM, GMM_dc& fgdGMM )
+template <typename ImgType, typename DataType, int DataLength>
+static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs,
+	GMM< DataType, DataLength >& bgdGMM, GMM< DataType, DataLength >& fgdGMM )
 {
     bgdGMM.initLearning();
     fgdGMM.initLearning();
     Point p;
-    for( int ci = 0; ci < GMM_dc::componentsCount; ci++ )
+    for( int ci = 0; ci < GMM< DataType, DataLength >::componentsCount; ci++ )
     {
         for( p.y = 0; p.y < img.rows; p.y++ )
         {
@@ -508,9 +521,9 @@ static void learnGMMs_dc( const Mat& img, const Mat& mask, const Mat& compIdxs, 
                 if( compIdxs.at<int>(p) == ci )
                 {
                     if( mask.at<uchar>(p) == GC_BGD || mask.at<uchar>(p) == GC_PR_BGD )
-                        bgdGMM.addSample( ci, img.at<Vecd_dc>(p) );
+                        bgdGMM.addSample( ci, img.at< Vec< ImgType, DataLength > >(p) );
                     else
-                        fgdGMM.addSample( ci, img.at<Vecd_dc>(p) );
+                        fgdGMM.addSample( ci, img.at< Vec< ImgType, DataLength > >(p) );
                 }
             }
         }
@@ -519,9 +532,11 @@ static void learnGMMs_dc( const Mat& img, const Mat& mask, const Mat& compIdxs, 
     fgdGMM.endLearning();
 }
 
-static void constructGCGraph_dc( const Mat& img, const Mat& mask, const GMM_dc& bgdGMM, const GMM_dc& fgdGMM, double lambda,
-                       const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
-                       GCGraph<double>& graph )
+template <typename ImgType, typename DataType, int DataLength>
+static void constructGCGraph( const Mat& img, const Mat& mask,
+	const GMM< DataType, DataLength >& bgdGMM, const GMM< DataType, DataLength >& fgdGMM,
+	double lambda, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
+	GCGraph<double>& graph )
 {
 	// Initialize our graph values
     int vtxCount = img.cols*img.rows,
@@ -544,7 +559,7 @@ static void constructGCGraph_dc( const Mat& img, const Mat& mask, const GMM_dc& 
         {
             // add node
             int vtxIdx = graph.addVtx();
-            Vecd_dc color = img.at<Vecd_dc>(p);
+            Vec< DataType, DataLength > color = (Vec< DataType, DataLength >)img.at< Vec< ImgType, DataLength > >(p);
 
             // set t-weights
 			// Note - which is sink and which is source has no meaning, just the segmentation
@@ -620,7 +635,7 @@ static void estimateSegmentation( GCGraph<double>& graph, Mat& mask )
 Mat* shrink( const Mat& input, Mat& mask, const int by )
 {
 	// Create our shrunk Material
-	Mat* output = new Mat( input.rows/by, input.cols/by, CV_64FC(DOUBLE_CHANNELS) );
+	Mat* output = new Mat( input.rows/by, input.cols/by, CV_64FC(2*CHANNELS) );
 
 	// For each point in ouput image...
 	Point p_i; // Input iterator
@@ -632,7 +647,7 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
 			Vecd_dc& values = output->at<Vecd_dc>(p_o);
 			// ...initialize base values as 0
-			for (int i = 0; i < DOUBLE_CHANNELS; i++)
+			for (int i = 0; i < 2*CHANNELS; i++)
 				values[i] = 0.0;
 
 			// And calculate these values using the area from input image. We first calculate the means
@@ -658,7 +673,7 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 						values[CHANNELS+i] += pow(values[i] - color.val[i], 2);
 				}
 			}
-			for (int i = CHANNELS; i < DOUBLE_CHANNELS; i++)
+			for (int i = CHANNELS; i < 2*CHANNELS; i++)
 				values[i] = sqrt(values[i] / (by*by));
 		}
 	}
@@ -737,7 +752,135 @@ Mat* grey_and_expand( const Mat& input )
 	return output;
 }
 
-void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
+// Calculate accuracy of the mask given ground truth
+double calculateAccuracy(const cv::Mat& output, const cv::Mat& key)
+{
+	int tp = 0;
+	int tn = 0;
+	int fp = 0;
+	int fn = 0;
+	int wv = 0;
+	for (int i = 0; i < output.rows; i++)
+		for (int j = 0; j < output.cols; j++)
+		{
+			int value = (int)output.at<uchar>(i, j);
+			int answer = (int)key.at<uchar>(i, j);
+			
+			if (value == GC_BGD || value == GC_PR_BGD)
+				value = GC_PR_BGD;
+			else value = GC_PR_FGD;
+			answer = answer / 255 + 2;
+
+			if (value == GC_PR_FGD && answer == GC_PR_FGD)
+				tp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_BGD)
+				tn++;
+			else if (value == GC_PR_FGD && answer == GC_PR_BGD)
+				fp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_FGD)
+				fn++;
+			else
+				wv++;
+		}
+	return (double)(tp+tn)/(tp+tn+fp+fn);
+}
+
+
+int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth,
+		OutputArray _output_mask, double skelOccup, uint64 seed, int iterCount, double epsilon)
+{
+	const int by = 10;
+
+	// Standard null checking procedure
+    if( _img.empty() )
+        CV_Error( CV_StsBadArg, "image is empty" );
+    if( _img.type() != CV_8UC3 )
+        CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
+
+	// Load image
+	Mat img;
+	_img.getMat().copyTo(img);
+	
+	// Load ground truth and output array
+	const Mat& ground_truth = _ground_truth.getMat();
+	Mat& output_mask = _output_mask.getMatRef();
+
+	// Load and prepare mask
+	Mat mask;
+	_mask.getMat().copyTo(mask);
+	resize(mask, mask, mask.size()/by, 0, 0, 1);
+	threshold(mask, mask, 1.0, 255.0, THRESH_BINARY);
+	thinning(mask, mask);
+
+	// Randomizing values of input mask for given threshold
+	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
+	RNG rng = RNG(seed);
+	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
+	threshold(random_mat, random_mat, 255.0*(1.0 - skelOccup), 1, THRESH_BINARY);
+	multiply( random_mat, mask, mask );
+
+	// Normalize the mask to be either GC_PR_BGD or GC_PR_FGD
+	resize(mask, mask, img.size(), 0, 0, 1);
+	threshold(mask, mask, 1.0, 1.0, THRESH_BINARY);
+	mask += 2;
+	checkMask( img, mask );
+
+	// Shrink our image and mask
+    Mat bgdModel = Mat(); // Our local model
+	Mat fgdModel = Mat(); // Same as above
+
+	// Building GMMs for local models
+	GMM<double, 3> bgdGMM( bgdModel ), fgdGMM( fgdModel );
+    Mat compIdxs( img.size(), CV_32SC1 );
+	
+	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
+	initGMMs< uchar, double, 3 >( img, mask, bgdGMM, fgdGMM );
+
+	// Simple parameters of our algorythm, used for setting up edge flows
+	const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
+	const double lambda = 9*gamma; // Lambda is simply a max value for flow, be it from source or to target, here 450
+	const double beta = calcBeta< uchar, 3 >( img ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
+												// 1 / 2*average distance in colors between neighbours
+
+	// NWeights, the flow capacity of our edges
+    Mat leftW, upleftW, upW, uprightW;
+    calcNWeights< uchar, double, 3 >( img, leftW, upleftW, upW, uprightW, beta, gamma );
+
+	double acc_prev, acc_curr;
+	acc_prev = acc_curr = 0.0;
+	int total_iters = 0;
+	// The main loop
+	do {
+		// Simply initialize the graph we will be using throughout the algorythm. It is created empty
+        GCGraph<double> graph;
+		
+		// Check the image at mask, and depending if it's FGD or BGD, return the number of component that suits it most.
+		// Answer (component numbers) is stored in compIdxs, it does not store anything else
+		assignGMMsComponents< uchar, double, 3 >( img, mask, bgdGMM, fgdGMM, compIdxs );
+
+		// This one adds samples to proper GMMs based on best component
+		// Strengthens our predictions?
+        learnGMMs< uchar, double, 3 >( img, mask, compIdxs, bgdGMM, fgdGMM );
+
+		// NOTE: As far as I can tell these two will be primarily worked upon
+		// Construct GraphCut graph, including initializing s and t values for source and sink flows
+        constructGCGraph< uchar, double, 3 >( img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
+
+		// Using max flow algorythm calculate segmentation
+        estimateSegmentation( graph, mask );
+
+		// Calculate accuracy and update iteration count
+		++total_iters;
+		iterCount = max(iterCount-1, -1);
+		acc_prev = acc_curr;
+		acc_curr = calculateAccuracy( mask, ground_truth );
+	}
+	while (iterCount != 0 && abs(acc_curr - acc_prev) > epsilon);
+	mask.copyTo(output_mask);
+	return total_iters;
+}
+
+void shrunk_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	OutputArray _out_mask, double thresh, uint64 seed, int iterCount )
 {
 	const int by = 10;
@@ -791,21 +934,21 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	Mat fgdModel = Mat(); // Same as above
 
 	// Building GMMs for local models
-    GMM_dc bgdGMM( bgdModel ), fgdGMM( fgdModel );
+    GMM< double, 2*CHANNELS > bgdGMM( bgdModel ), fgdGMM( fgdModel );
     Mat compIdxs( img_dc->size(), CV_32SC1 );
 
 	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
-	initGMMs_dc( *img_dc, mask, bgdGMM, fgdGMM );
+	initGMMs< double, double, 2*CHANNELS >( *img_dc, mask, bgdGMM, fgdGMM );
 
 	// Simple parameters of our algorythm, used for setting up edge flows
 	const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
 	const double lambda = 9*gamma; // Lambda is simply a max value for flow, be it from source or to target, here 450
-	const double beta = calcBeta_dc( *img_dc ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
+	const double beta = calcBeta< double, 2*CHANNELS >( *img_dc ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
 												// 1 / 2*average distance in colors between neighbours
 
 	// NWeights, the flow capacity of our edges
     Mat leftW, upleftW, upW, uprightW;
-    calcNWeights_dc( *img_dc, leftW, upleftW, upW, uprightW, beta, gamma );
+    calcNWeights< double, double, 2*CHANNELS >( *img_dc, leftW, upleftW, upW, uprightW, beta, gamma );
 
 	// The main loop
     for( int i = 0; i < iterCount; i++ )
@@ -815,16 +958,16 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 		
 		// Check the image at mask, and depending if it's FGD or BGD, return the number of component that suits it most.
 		// Answer (component numbers) is stored in compIdxs, it does not store anything else
-		assignGMMsComponents_dc( *img_dc, mask, bgdGMM, fgdGMM, compIdxs );
+		assignGMMsComponents< double, double, 2*CHANNELS >( *img_dc, mask, bgdGMM, fgdGMM, compIdxs );
 
 		// This one adds samples to proper GMMs based on best component
 		// Strengthens our predictions?
 		// BREAK: The program breaks on end learning part when it checks if Cov matrix is inversable
-        learnGMMs_dc( *img_dc, mask, compIdxs, bgdGMM, fgdGMM );
+        learnGMMs< double, double, 2*CHANNELS >( *img_dc, mask, compIdxs, bgdGMM, fgdGMM );
 
 		// NOTE: As far as I can tell these two will be primarily worked upon
 		// Construct GraphCut graph, including initializing s and t values for source and sink flows
-        constructGCGraph_dc( *img_dc, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
+        constructGCGraph< double, double, 2*CHANNELS >( *img_dc, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
 
 		// Using max flow algorythm calculate segmentation
         estimateSegmentation( graph, mask );
@@ -837,6 +980,90 @@ void homology_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	delete img_dc;
 
 	delete img_cg;
+}
+
+int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, InputArray _ground_truth, 
+	OutputArray _out_mask, double skelOccup, uint64 seed, int iterCount, double epsilon )
+{
+	const int by = 10;
+
+	// Standard null checking procedure
+    if( _img.empty() )
+        CV_Error( CV_StsBadArg, "image is empty" );
+    if( _img.type() != CV_8UC3 )
+        CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
+	
+	Mat img, mask, filters, ground_truth;
+	Mat& out_mask = _out_mask.getMatRef();
+	_img.getMat().copyTo(img);
+	_mask.getMat().copyTo(mask);
+	_filters.getMat().copyTo(filters);
+	_ground_truth.getMat().copyTo(ground_truth);
+
+	// Perform a single grabcut iteration for shrunk image and mask
+	shrunk_grabcut( img, mask, filters, out_mask, skelOccup, seed, 1);
+	out_mask.copyTo( mask );
+	threshold( mask, mask, 2.5, 1.0, THRESH_BINARY );
+	mask += 2;
+	checkMask( img, mask );
+	//****************************************************************************************************************//
+	/***									Second step - standard GrabCut											***/
+	//****************************************************************************************************************//
+	// Shrink our image and mask
+    Mat bgdModel = Mat(); // Our local model
+	Mat fgdModel = Mat(); // Same as above
+
+	// Building GMMs for local models
+	GMM<double, 3> bgdGMM_S( bgdModel ), fgdGMM_S( fgdModel );
+    Mat compIdxs( img.size(), CV_32SC1 );
+	
+	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
+	initGMMs< uchar, double, 3 >( img, mask, bgdGMM_S, fgdGMM_S );
+
+	// Simple parameters of our algorythm, used for setting up edge flows
+	const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
+	const double lambda = 9*gamma; // Lambda is simply a max value for flow, be it from source or to target, here 450
+	const double beta = calcBeta< uchar, 3 >( img ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
+												// 1 / 2*average distance in colors between neighbours
+
+	// NWeights, the flow capacity of our edges
+    Mat leftW, upleftW, upW, uprightW;
+    calcNWeights< uchar, double, 3 >( img, leftW, upleftW, upW, uprightW, beta, gamma );
+	
+	double acc_prev, acc_curr;
+	acc_prev = acc_curr = 0.0;
+	int total_iters = 0;
+	// The main loop
+	do
+    {
+		// Simply initialize the graph we will be using throughout the algorythm. It is created empty
+        GCGraph<double> graph;
+		
+		// Check the image at mask, and depending if it's FGD or BGD, return the number of component that suits it most.
+		// Answer (component numbers) is stored in compIdxs, it does not store anything else
+		assignGMMsComponents< uchar, double, 3 >( img, mask, bgdGMM_S, fgdGMM_S, compIdxs );
+
+		// This one adds samples to proper GMMs based on best component
+		// Strengthens our predictions?
+        learnGMMs< uchar, double, 3 >( img, mask, compIdxs, bgdGMM_S, fgdGMM_S );
+
+		// NOTE: As far as I can tell these two will be primarily worked upon
+		// Construct GraphCut graph, including initializing s and t values for source and sink flows
+        constructGCGraph< uchar, double, 3 >( img, mask, bgdGMM_S, fgdGMM_S, lambda, leftW, upleftW, upW, uprightW, graph );
+
+		// Using max flow algorythm calculate segmentation
+        estimateSegmentation( graph, mask );
+
+		// Calculate accuracy and update iteration count
+		++total_iters;
+		iterCount = max(iterCount-1, -1);
+		acc_prev = acc_curr;
+		acc_curr = calculateAccuracy( mask, ground_truth );
+    }
+	while (iterCount != 0 && abs(acc_curr - acc_prev) > epsilon);
+	mask.copyTo(out_mask);
+
+	return total_iters;
 }
 
 // Create a single filter in accordance to

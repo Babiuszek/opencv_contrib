@@ -47,11 +47,23 @@
 
 namespace cv
 {
+	/** @brief Performs 1-step (standard) grabcut using given image and mask.
+
+	The function shrinks given mask and skeletizes it. It then randomly chooses a set amount of
+	pixels from the shrunk, skeletized mask before enlarging it. Such prepared mask is then used
+	by the standard grabcut algorythm until it meets the end condition (either convergeance
+	given certain epsilon or maximum number of iterations).
+
+	 */
+	CV_EXPORTS int one_step_grabcut(InputArray img, InputArray mask, InputArray ground_truth,
+		OutputArray output_mask, double SkelOccup=1.0, uint64 seed=0, int IterCount=1, double epsilon=0.001);
+
 	/** @brief Performs grabcut on shrunk image using given filters and mask.
 	
 	The function applies all filters given to seperate copies of grayscale transformed input
 	image. The images and initial mask are then shrunk 10 times. Finally, a standard version
 	of grabcut is used on the shrunk images, giving us shrunken answer which is then enlarged.
+	The function returns the amount of iteration it took to found the answer.
 	
 	@param img Input image. Supported formats: CV_8UC1. Image size must match the one given by
 	mask. The image is assumed to be in RGB format.
@@ -63,20 +75,26 @@ namespace cv
 
 	@param filters An array of filters for usage of algorythm. Each filter is seperately
 	applied to its own version of grayscaled input image. May be empty.
+
+	@param ground_truth Is the actual mask that answer found by the algorithm is compared to.
 	
 	@param output_mask The answer of the grabcut algorythm is stored here. An array of CV_8UC1
 	values which are either GC_PR_FGD or GC_PR_BGD.
 
-	@param thresh Threshold value between 0.0 and 1.0. It controls how many points of input
-	mask are taken into account, 1-Threshold points are ignored and assumed as background.
+	@param SkelOccup Threshold value between 0.0 and 1.0. It controls how many points of input
+	mask are taken into account, 1-SkelOccup points are ignored and assumed as background.
 
 	@param seed Seed for initializing RNG class.
 	
-	@param iterCount Total amount of iterations. Each set of iterations uses the same GMMs.
-	Default is 1, meaning GMMs are learned, used and immidiately discarded.
+	@param iterCount The maximum amount of iterations. Each set of iterations uses the same GMMs.
+	Default is 1, meaning GMMs are learned, used and immidiately discarded. Setting it to 0
+	causes the program to iterate till convergeance with epsilon.
+
+	@param epsilon The threshold value for changes. If accuracy difference between current and
+	previous answer is lower than epsilon the algorythm ends.
 	 */
-	CV_EXPORTS_W void homology_grabcut(InputArray img, InputArray mask, InputArray filters,
-		OutputArray output_mask, double thresh=1.0, uint64 seed=0, int IterCount=1);
+	CV_EXPORTS int two_step_grabcut(InputArray img, InputArray mask, InputArray filters, InputArray ground_truth,
+		OutputArray output_mask, double SkelOccup=1.0, uint64 seed=0, int IterCount=1, double epsilon=0.001);
 	
 	/** @brief Constructs 13 Schmid filters storing them in CV_32FC(13) Mat bank
 	
