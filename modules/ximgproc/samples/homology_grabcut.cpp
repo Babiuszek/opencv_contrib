@@ -54,6 +54,18 @@ void GetFilesInDirectory(std::vector<std::string> &out, const std::string &direc
 
     FindClose(dir);
 #else
+	DIR* dirp = opendir(directory);
+	struct dirent *dp;
+	while ((dp = readdir(dirp)) != NULL)
+	{
+		if (dp->d_name[0] == '.')
+			continue;
+		if (dp->d_type == DT_DIR)
+			continue;
+		out.push_back(dp->d_name);
+	}
+	(void)closedir(dirp);
+	/*
     DIR *dir;
     class dirent *ent;
     class stat st;
@@ -77,6 +89,7 @@ void GetFilesInDirectory(std::vector<std::string> &out, const std::string &direc
         out.push_back(full_file_name);
     }
     closedir(dir);
+	*/
 #endif
 } // GetFilesInDirectory
 std::string getFileType(const std::string &file)
