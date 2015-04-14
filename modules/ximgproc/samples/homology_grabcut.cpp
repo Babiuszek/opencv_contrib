@@ -54,7 +54,7 @@ void GetFilesInDirectory(std::vector<std::string> &out, const std::string &direc
 
     FindClose(dir);
 #else
-	DIR* dirp = opendir(directory);
+	DIR* dirp = opendir(directory.c_str());
 	struct dirent *dp;
 	while ((dp = readdir(dirp)) != NULL)
 	{
@@ -65,31 +65,6 @@ void GetFilesInDirectory(std::vector<std::string> &out, const std::string &direc
 		out.push_back(dp->d_name);
 	}
 	(void)closedir(dirp);
-	/*
-    DIR *dir;
-    class dirent *ent;
-    class stat st;
-
-    dir = opendir(directory);
-    while ((ent = readdir(dir)) != NULL) {
-        const string file_name = ent->d_name;
-        const string full_file_name = directory + "/" + file_name;
-
-        if (file_name[0] == '.')
-            continue;
-
-        if (stat(full_file_name.c_str(), &st) == -1)
-            continue;
-
-        const bool is_directory = (st.st_mode & S_IFDIR) != 0;
-
-        if (is_directory)
-            continue;
-
-        out.push_back(full_file_name);
-    }
-    closedir(dir);
-	*/
 #endif
 } // GetFilesInDirectory
 std::string getFileType(const std::string &file)
@@ -311,7 +286,7 @@ public:
 		// Initalize log file
 		{
 			boost::lock_guard<boost::mutex> lock(mtx);
-			logFile.open( logFileName, ios::out | ios::ate | ios::app );
+			logFile.open( logFileName.c_str(), ios::out | ios::ate | ios::app );
 			for (unsigned int i = 0; i < toLog.length(); i++)
 				logFile.write(&toLog.at(i), 1);
 			logFile.close();
