@@ -2,12 +2,18 @@
 #include "opencv2/imgproc.hpp"
 #include "opencv2/ximgproc/homology_grabcut.hpp"
 
-#include <iostream>
 #include <time.h>
+#include <vector>
+#include <string>
+#include <iostream>
 #include <fstream>
 #include <boost/thread.hpp>
 #ifdef _WINDOWS
 	#include <Windows.h>
+#else
+#include <sys/types.h>
+#include <dirent.h>
+#include <errno.h>
 #endif
 
 using namespace std;
@@ -339,7 +345,7 @@ int main( int argc, char** argv )
 	char* out_path = argc >= 5 ? argv[4] : (char*)"./answers";
 	
 	// Pairing up sources with their masks
-	std::vector<std::pair<int, int>> pairs;
+	std::vector<std::pair<int, int> > pairs;
 	for (unsigned int i = 0; i < sources.size(); ++i)
 	{
 		std::string source = getFileName( sources.at(i) );
@@ -360,7 +366,7 @@ int main( int argc, char** argv )
 	// Create threads
 	boost::thread_group threads;
 	int id = 0;
-	for (std::vector<std::pair<int, int>>::iterator i = pairs.begin(); i != pairs.end(); ++i)
+	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
 		threads.create_thread( w );
