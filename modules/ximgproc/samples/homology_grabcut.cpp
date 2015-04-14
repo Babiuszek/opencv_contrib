@@ -5,17 +5,106 @@
 #include <iostream>
 #include <time.h>
 #include <fstream>
+#include <boost/thread.hpp>
+#ifdef _WINDOWS
+	#include <Windows.h>
+#endif
 
 using namespace std;
 using namespace cv;
 
-fstream logFile;
+boost::mutex mtx;
 
 enum MODE {
 	ONE_STEP	= 0,
 	TWO_STEP	= 1,
 	END			= 2
 };
+
+/* Returns a list of files in a directory (except the ones that begin with a dot) */
+
+void GetFilesInDirectory(std::vector<std::string> &out, const std::string &directory)
+{
+#ifdef _WINDOWS
+    HANDLE dir;
+    WIN32_FIND_DATA file_data;
+
+    if ((dir = FindFirstFile((directory + "/*").c_str(), &file_data)) == INVALID_HANDLE_VALUE)
+        return; /* No files found */
+
+    do {
+        const string file_name = file_data.cFileName;
+        const string full_file_name = directory + "/" + file_name;
+        const bool is_directory = (file_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+        if (file_name[0] == '.')
+            continue;
+
+        if (is_directory)
+            continue;
+
+        out.push_back(full_file_name);
+    } while (FindNextFile(dir, &file_data));
+
+    FindClose(dir);
+#else
+    DIR *dir;
+    class dirent *ent;
+    class stat st;
+
+    dir = opendir(directory);
+    while ((ent = readdir(dir)) != NULL) {
+        const string file_name = ent->d_name;
+        const string full_file_name = directory + "/" + file_name;
+
+        if (file_name[0] == '.')
+            continue;
+
+        if (stat(full_file_name.c_str(), &st) == -1)
+            continue;
+
+        const bool is_directory = (st.st_mode & S_IFDIR) != 0;
+
+        if (is_directory)
+            continue;
+
+        out.push_back(full_file_name);
+    }
+    closedir(dir);
+#endif
+} // GetFilesInDirectory
+std::string getFileType(const std::string &file)
+{
+	std::string ans = "";
+	for (unsigned int i = file.length()-1; i > 0; --i)
+		if (file.at(i) != '.')
+			ans = file.at(i) + ans;
+		else break;
+	return ans;
+}
+std::string getFileName(const std::string &file)
+{
+	std::string ans = "";
+	unsigned int i;
+	// Find the dot
+	for (i = file.length()-1; i > 0; --i)
+		if (file.at(i) == '.')
+			break;
+	// Save the filename until '/' or '\'
+	for (i = i-1; i > 0; --i) //skip the dot
+	{
+		if ((file.at(i) == '\\') || file.at(i) == '/')
+			break;
+		else ans = file.at(i) + ans;
+	}
+	return ans;
+}
+bool isTypeGraphic(const std::string &file)
+{
+	if ((file.compare("bmp") == 0) || (file.compare("jpg") == 0) || (file.compare("png") == 0))
+		return true;
+	return false;
+}
 
 int getID(string& line)
 {
@@ -31,7 +120,6 @@ int getID(string& line)
 		Answer = Answer*10 + line.at(i) - 48;
 	return Answer;
 }
-
 string toString(float value)
 {
 	// Init
@@ -137,106 +225,148 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& im
 	accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
 }
 
+class Worker {
+public:
+	Worker( const std::string &_logFileName, const std::string &_source, const std::string &_mask,
+		const std::string &_out_path, const int _start_id) :
+		logFileName(_logFileName), source(_source), mask(_mask), out_path(_out_path), start_id(_start_id) {};
+
+	void operator()() {
+		// Load the images
+		Mat image = imread( source, 1 );
+		Mat image_mask = imread( mask, 1 );
+		// Skel function reads an RGB image
+		Mat image_mask_skel;
+		skel( image_mask, image_mask_skel );
+		// Transform mask to one channel binary image
+		cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
+		threshold(image_mask, image_mask, 10, 255, THRESH_BINARY);
+	
+		// Initialize values for program and for logging
+		int iterCount = 4;
+		double epsilon = 0.001;
+		int total_iters;
+
+		fstream logFile;
+		string toLog = "";
+		string original = "";
+		original = original + getFileName( source );
+		int id = 0;
+
+		// Create filters
+		Mat filters;
+		create_filters(filters);
+
+		// Output mask
+		Mat mask;
+		mask.create(image.rows, image.cols, CV_8UC1);
+
+		for(int skelOccup = 1; skelOccup <= 5; ++skelOccup)
+		{
+			double accuracy, it_time;
+			accuracy = it_time = 0.0;
+			Mat bin_mask;
+			bin_mask.create( mask.size(), CV_8UC1 );
+
+			for (int mode = ONE_STEP; mode < END; mode++)
+			{
+				// Perform iteration
+				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
+				nextIter(image, image_mask, image_mask_skel, filters,
+					mask, (double)skelOccup/10, iterCount, epsilon, 1, mode,
+					toLog, accuracy, it_time, total_iters);
+				cv::threshold(mask, mask, 2.5, 255.0, THRESH_BINARY);
+
+				// Save calculated image mask
+				string output_file = out_path + "/" + original + "_" + toString((float)id) + ".png";
+				imwrite( output_file, mask );
+				// Update log string
+				toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
+					toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
+					toString((float)it_time) + ";" + output_file + "\n";
+				++id;
+			}
+		}
+		// Initalize log file
+		{
+			boost::lock_guard<boost::mutex> lock(mtx);
+			logFile.open( logFileName, ios::out | ios::ate | ios::app );
+			for (unsigned int i = 0; i < toLog.length(); i++)
+				logFile.write(&toLog.at(i), 1);
+			logFile.close();
+		}
+	}
+
+private:
+	const std::string logFileName;
+	const std::string source;
+	const std::string mask;
+	const std::string out_path;
+	const int start_id;
+};
+
 int main( int argc, char** argv )
 {
 	// Randomization init
 	srand((unsigned int)time(NULL));
 
 	// Initialize paths
-	string out_path = "./answers/";
-	int iterCount = 0;
-	double epsilon = 0.001;
-	int total_iters;
-
-	// Load the image
-	char* filename = argc >= 3 ? argv[2] : (char*)"grabcut_cow.png";
-    Mat image = imread( filename, 1 );
-    if( image.empty() )
-    {
-        cout << "\n Durn, couldn't read image filename " << filename << endl;
-        return 1;
-    }
+	char* log_path = argc >= 2 ? argv[1] : (char*)"log.csv";
 	
-	// Initialize values for logging
-	string toLog = "";
-	string original = "";
-	original = original + filename;
-	original = original.substr(0, original.length()-4);
-	int id = 0;
-
-	// Get the last id used in our csv file
-	filename = argc >= 2 ? argv[1] : (char*)"log.csv";
-	logFile.open( filename, ios::in );
-	string line;
-	getline( logFile, line );
-	while (!line.empty())
+	// Load images from given (or default) source folder
+	char* filename = argc >= 3 ? argv[2] : (char*)"./bin/images/sources";
+	std::vector<std::string> sources;
+	GetFilesInDirectory(sources, filename);
+	for (std::vector<std::string>::iterator i = sources.begin(); i != sources.end(); i)
 	{
-		id = getID( line ) + 1;
-		getline( logFile, line );
+		if (!isTypeGraphic( getFileType( *i )))
+			i = sources.erase(i);
+		else ++i;
 	}
-	logFile.close();
+	
+	// Load images from given (or default) mask folder
+	filename = argc >= 4 ? argv[3] : (char*)"./bin/images/ground_truths";
+	std::vector<std::string> masks;
+	GetFilesInDirectory(masks, filename);
+	for (std::vector<std::string>::iterator i = masks.begin(); i != masks.end(); i)
+	{
+		if (!isTypeGraphic( getFileType( *i )))
+			i = masks.erase(i);
+		else ++i;
+	}
 
-	// Load the mask
-	filename = argc >= 4 ? argv[3] : (char*)"grabcut_cow_mask.png";
-	Mat image_mask = imread( filename, 1 );
-    if( image_mask.empty() )
-    {
-        cout << "\n Durn, couldn't read image filename " << filename << endl;
-        return 1;
-    }
-	cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
-	threshold(image_mask, image_mask, 10, 255, THRESH_BINARY);
+	// And last but not least the out path
+	char* out_path = argc >= 5 ? argv[4] : (char*)"./answers";
+	
+	// Pairing up sources with their masks
+	std::vector<std::pair<int, int>> pairs;
+	for (unsigned int i = 0; i < sources.size(); ++i)
+	{
+		std::string source = getFileName( sources.at(i) );
+		for (unsigned int j = 0; j < masks.size(); ++j)
+			if (source.compare( getFileName( masks.at(j) ) ) == 0)
+			{
+				pairs.push_back( std::pair<int, int>(i, j) );
+				break;
+			}
+			else if (j == masks.size()-1)
+			{
+				cout << "\n Could not find a pairing mask for image " << sources.at(i) << endl;
+				cout << "Make sure the mask has the same filename as the image and it's extension is lower case.\n";
+				return 2;
+			}
+	}
 
-	// Load skel'd mask
-	filename = argc >= 5 ? argv[4] : (char*)"grabcut_cow_mask_skel.png";
-	Mat image_mask_skel = imread( filename, 1 );
-    if( image_mask_skel.empty() )
-    {
-		skel( image_mask, image_mask_skel );
-		imwrite( "grabcut_cow_mask_skel.png", image_mask_skel );
-    }
-	cvtColor(image_mask_skel, image_mask_skel, COLOR_RGB2GRAY);
-	threshold(image_mask_skel, image_mask_skel, 10, 255, THRESH_BINARY);
-
-	// Create filters
-	Mat filters;
-	create_filters(filters);
-
-	// Output mask
-	Mat mask;
-	mask.create(image.rows, image.cols, CV_8UC1);
-
-    for(int skelOccup = 1; skelOccup <= 5; ++skelOccup)
-    {
-		double accuracy, it_time;
-		accuracy = it_time = 0.0;
-		Mat bin_mask;
-		bin_mask.create( mask.size(), CV_8UC1 );
-
-		for (int mode = ONE_STEP; mode < END; mode++)
-		{
-			// Perform iteration
-			nextIter(image, image_mask, image_mask_skel, filters,
-				mask, (double)skelOccup/10, iterCount, epsilon, 1, mode,
-				toLog, accuracy, it_time, total_iters);
-			cv::threshold(mask, mask, 2.5, 255.0, THRESH_BINARY);
-
-			// Save calculated image mask
-			string output_file = out_path + original + "_" + toString((float)id) + ".png";
-			imwrite( output_file, mask );
-			// Update log string
-			toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
-				toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-				toString((float)it_time) + ";" + output_file + "\n";
-			++id;
-		}
-    }
-	// Initalize log file
-	filename = argc >= 2 ? argv[1] : (char*)"log.csv";
-	logFile.open( filename, ios::out | ios::ate | ios::app );
-	for (unsigned int i = 0; i < toLog.length(); i++)
-		logFile.write(&toLog.at(i), 1);
-	logFile.close();
+	// Create threads
+	boost::thread_group threads;
+	int id = 0;
+	for (std::vector<std::pair<int, int>>::iterator i = pairs.begin(); i != pairs.end(); ++i)
+	{
+		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
+		threads.create_thread( w );
+		id += 10;
+	}
+	threads.join_all();
 
     return 0;
 }
