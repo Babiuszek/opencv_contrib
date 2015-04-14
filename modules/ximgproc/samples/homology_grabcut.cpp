@@ -257,6 +257,8 @@ public:
 		// Skel function reads an RGB image
 		Mat image_mask_skel;
 		skel( image_mask, image_mask_skel );
+		threshold( image_mask_skel, image_mask_skel, 10.0, 255.0, THRESH_BINARY );
+
 		// Transform mask to one channel binary image
 		cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
 		threshold(image_mask, image_mask, 10, 255, THRESH_BINARY);
@@ -280,14 +282,14 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 1; skelOccup <= 5; ++skelOccup)
+		for(int skelOccup = 5; skelOccup <= 5; ++skelOccup)
 		{
 			double accuracy, it_time;
 			accuracy = it_time = 0.0;
 			Mat bin_mask;
 			bin_mask.create( mask.size(), CV_8UC1 );
 
-			for (int mode = ONE_STEP; mode < END; mode++)
+			for (int mode = ONE_STEP; mode < TWO_STEP; mode++)
 			{
 				// Perform iteration
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
@@ -375,17 +377,23 @@ int main( int argc, char** argv )
 				return 2;
 			}
 	}
-
+	
 	// Create threads
 	boost::thread_group threads;
 	int id = 0;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
+		boost::thread thread(w);
+		thread.join();
+	}
+	/*for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
+	{
+		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
 		threads.create_thread( w );
 		id += 10;
 	}
-	threads.join_all();
+	threads.join_all();*/
 
     return 0;
 }

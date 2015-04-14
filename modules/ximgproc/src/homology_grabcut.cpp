@@ -461,6 +461,8 @@ static void initGMMs( const Mat& img, const Mat& mask,
         }
     }
 	// Standard debug, none should be empty
+	if (bgdSamples.empty() || fgdSamples.empty())
+		std::cout << "bgdSamples=" << bgdSamples.size() << ", fgdSamples=" << fgdSamples.size() << std::endl;
     CV_Assert( !bgdSamples.empty() && !fgdSamples.empty() );
 
 	// Transform vector of Vec3f into an actual 2D material
@@ -811,6 +813,7 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 	resize(mask, mask, mask.size()/by, 0, 0, 1);
 	threshold(mask, mask, 1.0, 255.0, THRESH_BINARY);
 	thinning(mask, mask);
+	threshold(mask, mask, 1.0, 255.0, THRESH_BINARY);
 
 	// Randomizing values of input mask for given threshold
 	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
