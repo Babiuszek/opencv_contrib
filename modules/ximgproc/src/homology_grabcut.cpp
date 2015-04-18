@@ -39,7 +39,8 @@
 //
 //M*/
 
-//C:\Users\Mateusz\Desktop\Computer Vision\OpenCV 3.0.0alpha\sources\modules\ml\src
+#include "opencv2/imgproc.hpp"
+#include "opencv2/highgui.hpp"
 #include "precomp.hpp"
 #include "gcgraph.hpp"
 #include "thinning.hpp"
@@ -339,7 +340,7 @@ static void initMaskWithRect( Mat& mask, Size imgSize, Rect rect )
 }
 
 //====================[ Multi-dimensional versions of original functions ]=====================
-template <typename DataType, int DataLength> static
+template <typename ImgType, int DataLength> static
 double calcBeta( const Mat& img )
 {
     double beta = 0;
@@ -347,25 +348,25 @@ double calcBeta( const Mat& img )
     {
         for( int x = 0; x < img.cols; x++ )
         {
-            Vec< DataType, DataLength > color = img.at< Vec< DataType, DataLength > >(y,x);
+            Vec< ImgType, DataLength > color = img.at< Vec< ImgType, DataLength > >(y,x);
             if( x>0 ) // left
             {
-                Vec< DataType, DataLength > diff = color - img.at< Vec< DataType, DataLength > >(y,x-1);
+                Vec< ImgType, DataLength > diff = color - img.at< Vec< ImgType, DataLength > >(y,x-1);
                 beta += diff.dot(diff);
             }
             if( y>0 && x>0 ) // upleft
             {
-                Vec< DataType, DataLength > diff = color - img.at< Vec< DataType, DataLength > >(y-1,x-1);
+                Vec< ImgType, DataLength > diff = color - img.at< Vec< ImgType, DataLength > >(y-1,x-1);
                 beta += diff.dot(diff);
             }
             if( y>0 ) // up
             {
-                Vec< DataType, DataLength > diff = color - img.at< Vec< DataType, DataLength > >(y-1,x);
+                Vec< ImgType, DataLength > diff = color - img.at< Vec< ImgType, DataLength > >(y-1,x);
                 beta += diff.dot(diff);
             }
             if( y>0 && x<img.cols-1) // upright
             {
-                Vec< DataType, DataLength > diff = color - img.at< Vec< DataType, DataLength > >(y-1,x+1);
+                Vec< ImgType, DataLength > diff = color - img.at< Vec< ImgType, DataLength > >(y-1,x+1);
                 beta += diff.dot(diff);
             }
         }
@@ -462,7 +463,11 @@ static void initGMMs( const Mat& img, const Mat& mask,
     }
 	// Standard debug, none should be empty
 	if (bgdSamples.empty() || fgdSamples.empty())
+	{
 		std::cout << "bgdSamples=" << bgdSamples.size() << ", fgdSamples=" << fgdSamples.size() << std::endl;
+		imwrite("error/image.png", img);
+		imwrite("error/mask.png", mask);
+	}
     CV_Assert( !bgdSamples.empty() && !fgdSamples.empty() );
 
 	// Transform vector of Vec3f into an actual 2D material
@@ -787,6 +792,70 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key)
 	return (double)(tp+tn)/(tp+tn+fp+fn);
 }
 
+template <typename ImgType, typename DataType, int DataLength>
+int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon)
+{
+	// Shrink our image and mask
+    Mat bgdModel = Mat(); // Our local model
+	Mat fgdModel = Mat(); // Same as above
+
+	// Building GMMs for local models
+	GMM<DataType, DataLength> bgdGMM( bgdModel ), fgdGMM( fgdModel );
+    Mat compIdxs( img.size(), CV_32SC1 );
+	
+	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
+	initGMMs< ImgType, DataType, DataLength >( img, mask, bgdGMM, fgdGMM );
+
+	// Simple parameters of our algorythm, used for setting up edge flows
+	const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
+	const double lambda = 9*gamma; // Lambda is simply a max value for flow, be it from source or to target, here 450
+	const double beta = calcBeta< ImgType, DataLength >( img ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
+												// 1 / 2*average distance in colors between neighbours
+
+	// NWeights, the flow capacity of our edges
+    Mat leftW, upleftW, upW, uprightW;
+    calcNWeights< ImgType, DataType, DataLength >( img, leftW, upleftW, upW, uprightW, beta, gamma );
+
+	Mat prev(mask.rows, mask.cols, CV_8UC1);
+	int total_iters = 0;
+	unsigned int C = 0;
+	// The main loop
+	do {
+		// Save the previously calculated mask
+		mask.copyTo(prev);
+		
+		// Simply initialize the graph we will be using throughout the algorythm. It is created empty
+        GCGraph<double> graph;
+		
+		// Check the image at mask, and depending if it's FGD or BGD, return the number of component that suits it most.
+		// Answer (component numbers) is stored in compIdxs, it does not store anything else
+		assignGMMsComponents< ImgType, DataType, DataLength >( img, mask, bgdGMM, fgdGMM, compIdxs );
+
+		// This one adds samples to proper GMMs based on best component
+		// Strengthens our predictions?
+        learnGMMs< ImgType, DataType, DataLength >( img, mask, compIdxs, bgdGMM, fgdGMM );
+
+		// NOTE: As far as I can tell these two will be primarily worked upon
+		// Construct GraphCut graph, including initializing s and t values for source and sink flows
+        constructGCGraph< ImgType, DataType, DataLength >( img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
+
+		// Using max flow algorythm calculate segmentation
+        estimateSegmentation( graph, mask );
+
+		// Calculate the amount of pixels in C (pixels which equal 1 on current AND previous mask);
+		C = 0;
+		Point p;
+		for (p.y = 0; p.y < mask.rows; ++p.y)
+			for (p.x = 0; p.x < mask.cols; ++p.x)
+				if ((prev.at<uchar>(p) == GC_PR_FGD) && (mask.at<uchar>(p) == GC_PR_FGD))
+					C++;
+		// Update iterCount and total_iters
+		iterCount = max(iterCount-1, -1);
+		total_iters++;
+	}
+	while (iterCount != 0 && (1.0 - (double)C/(countNonZero(prev)+countNonZero(mask)+C) > epsilon));
+	return total_iters;
+}
 
 int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth,
 		OutputArray _output_mask, double skelOccup, uint64 seed, int iterCount, double epsilon)
@@ -820,7 +889,11 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 	RNG rng = RNG(seed);
 	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
 	threshold(random_mat, random_mat, 255.0*(1.0 - skelOccup), 1, THRESH_BINARY);
-	multiply( random_mat, mask, mask );
+	Mat multiplied;
+	multiply( random_mat, mask, multiplied );
+	if (countNonZero(multiplied) > 0)
+		multiplied.copyTo(mask);
+	//imwrite("error/mask_randomized.png", mask);
 
 	// Normalize the mask to be either GC_PR_BGD or GC_PR_FGD
 	resize(mask, mask, img.size(), 0, 0, 1);
@@ -828,161 +901,12 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 	mask += 2;
 	checkMask( img, mask );
 
-	// Shrink our image and mask
-    Mat bgdModel = Mat(); // Our local model
-	Mat fgdModel = Mat(); // Same as above
+	// Perform grabcut
+	int total_iters = perform_grabcut_on<uchar, double, 3>(img, mask, iterCount, epsilon);
 
-	// Building GMMs for local models
-	GMM<double, 3> bgdGMM( bgdModel ), fgdGMM( fgdModel );
-    Mat compIdxs( img.size(), CV_32SC1 );
-	
-	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
-	initGMMs< uchar, double, 3 >( img, mask, bgdGMM, fgdGMM );
-
-	// Simple parameters of our algorythm, used for setting up edge flows
-	const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
-	const double lambda = 9*gamma; // Lambda is simply a max value for flow, be it from source or to target, here 450
-	const double beta = calcBeta< uchar, 3 >( img ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
-												// 1 / 2*average distance in colors between neighbours
-
-	// NWeights, the flow capacity of our edges
-    Mat leftW, upleftW, upW, uprightW;
-    calcNWeights< uchar, double, 3 >( img, leftW, upleftW, upW, uprightW, beta, gamma );
-
-	double acc_prev, acc_curr;
-	acc_prev = acc_curr = 0.0;
-	int total_iters = 0;
-	// The main loop
-	do {
-		// Simply initialize the graph we will be using throughout the algorythm. It is created empty
-        GCGraph<double> graph;
-		
-		// Check the image at mask, and depending if it's FGD or BGD, return the number of component that suits it most.
-		// Answer (component numbers) is stored in compIdxs, it does not store anything else
-		assignGMMsComponents< uchar, double, 3 >( img, mask, bgdGMM, fgdGMM, compIdxs );
-
-		// This one adds samples to proper GMMs based on best component
-		// Strengthens our predictions?
-        learnGMMs< uchar, double, 3 >( img, mask, compIdxs, bgdGMM, fgdGMM );
-
-		// NOTE: As far as I can tell these two will be primarily worked upon
-		// Construct GraphCut graph, including initializing s and t values for source and sink flows
-        constructGCGraph< uchar, double, 3 >( img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
-
-		// Using max flow algorythm calculate segmentation
-        estimateSegmentation( graph, mask );
-
-		// Calculate accuracy and update iteration count
-		++total_iters;
-		iterCount = max(iterCount-1, -1);
-		acc_prev = acc_curr;
-		acc_curr = calculateAccuracy( mask, ground_truth );
-	}
-	while (iterCount != 0 && abs(acc_curr - acc_prev) > epsilon);
+	// Save and return output
 	mask.copyTo(output_mask);
 	return total_iters;
-}
-
-void shrunk_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
-	OutputArray _out_mask, double thresh, uint64 seed, int iterCount )
-{
-	const int by = 10;
-
-	// Standard null checking procedure
-    if( _img.empty() )
-        CV_Error( CV_StsBadArg, "image is empty" );
-    if( _img.type() != CV_8UC3 )
-        CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
-
-	// Initialization
-	Mat* img_cg = grey_and_expand( _img.getMat() ); //14 CHANNELS Dimensional Grey
-	Mat filters = _filters.getMat();
-
-	// Applying filters
-	Mat img_cg_v[CHANNELS]; // Vector of values for filter2D usage
-	Mat filters_v[FILTERS]; // Vector of filters for filter2D usage
-	split( *img_cg, img_cg_v );
-	split( filters, filters_v );
-	for (int i = 0; i < FILTERS; i++)
-	{
-		// Apply the filter. Default values are:
-		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
-		filter2D( img_cg_v[i+1], img_cg_v[i+1], CV_64F, filters_v[i] );
-	}
-	// Build back our final solution
-	merge( img_cg_v, CHANNELS, *img_cg );
-
-	// Load our output and initial masks
-	Mat& out_mask = _out_mask.getMatRef();
-    Mat mask; // Shrunk mask, values given are either assumed 255 or 0
-	_mask.getMat().copyTo(mask);
-
-	// Randomizing values of input mask for given threshold
-	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
-	RNG rng = RNG(seed);
-	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
-	threshold(random_mat, random_mat, 255.0*(1.0 - thresh), 1, THRESH_BINARY);
-	multiply( random_mat, mask, mask );
-
-	// Normalize the mask to be either GC_PR_BGD or GC_PR_FGD
-	mask /= 255;
-	mask += 2;
-
-	// Check mask for any errors. If the mask is correct now, it will be correct later
-	checkMask( _img.getMat(), mask );
-	
-	// Shrink our image and mask
-    Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
-	Mat bgdModel = Mat(); // Our local model
-	Mat fgdModel = Mat(); // Same as above
-
-	// Building GMMs for local models
-    GMM< double, 2*CHANNELS > bgdGMM( bgdModel ), fgdGMM( fgdModel );
-    Mat compIdxs( img_dc->size(), CV_32SC1 );
-
-	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
-	initGMMs< double, double, 2*CHANNELS >( *img_dc, mask, bgdGMM, fgdGMM );
-
-	// Simple parameters of our algorythm, used for setting up edge flows
-	const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
-	const double lambda = 9*gamma; // Lambda is simply a max value for flow, be it from source or to target, here 450
-	const double beta = calcBeta< double, 2*CHANNELS >( *img_dc ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
-												// 1 / 2*average distance in colors between neighbours
-
-	// NWeights, the flow capacity of our edges
-    Mat leftW, upleftW, upW, uprightW;
-    calcNWeights< double, double, 2*CHANNELS >( *img_dc, leftW, upleftW, upW, uprightW, beta, gamma );
-
-	// The main loop
-    for( int i = 0; i < iterCount; i++ )
-    {
-		// Simply initialize the graph we will be using throughout the algorythm. It is created empty
-        GCGraph<double> graph;
-		
-		// Check the image at mask, and depending if it's FGD or BGD, return the number of component that suits it most.
-		// Answer (component numbers) is stored in compIdxs, it does not store anything else
-		assignGMMsComponents< double, double, 2*CHANNELS >( *img_dc, mask, bgdGMM, fgdGMM, compIdxs );
-
-		// This one adds samples to proper GMMs based on best component
-		// Strengthens our predictions?
-		// BREAK: The program breaks on end learning part when it checks if Cov matrix is inversable
-        learnGMMs< double, double, 2*CHANNELS >( *img_dc, mask, compIdxs, bgdGMM, fgdGMM );
-
-		// NOTE: As far as I can tell these two will be primarily worked upon
-		// Construct GraphCut graph, including initializing s and t values for source and sink flows
-        constructGCGraph< double, double, 2*CHANNELS >( *img_dc, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
-
-		// Using max flow algorythm calculate segmentation
-        estimateSegmentation( graph, mask );
-    }
-
-	// Piece together full size mask out of smaller one
-	expandShrunkMat(mask, out_mask, by);
-	
-	// Clean-up
-	delete img_dc;
-
-	delete img_cg;
 }
 
 int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, InputArray _ground_truth, 
@@ -1002,68 +926,68 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	_mask.getMat().copyTo(mask);
 	_filters.getMat().copyTo(filters);
 	_ground_truth.getMat().copyTo(ground_truth);
+	
+	// Initialization
+	Mat* img_cg = grey_and_expand( img ); //14 CHANNELS Dimensional Grey
 
+	// Applying filters
+	Mat img_cg_v[CHANNELS]; // Vector of values for filter2D usage
+	Mat filters_v[FILTERS]; // Vector of filters for filter2D usage
+	split( *img_cg, img_cg_v );
+	split( filters, filters_v );
+	for (int i = 0; i < FILTERS; i++)
+	{
+		// Apply the filter. Default values are:
+		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
+		filter2D( img_cg_v[i+1], img_cg_v[i+1], CV_64F, filters_v[i] );
+	}
+	// Build back our final solution
+	merge( img_cg_v, CHANNELS, *img_cg );
+	
+	// Shrink the image and mask to get 28 channels
+	imwrite("error/mask.png", mask);
+    Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
+	imwrite("error/mask_shrunk.png", mask);
+	thinning(mask, mask);
+	imwrite("error/mask_skelled.png", mask);
+	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
+
+	// Randomizing values of input mask for given threshold
+	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
+	RNG rng = RNG(seed);
+	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
+	threshold(random_mat, random_mat, 255.0*(1.0 - skelOccup), 1, THRESH_BINARY);
+	Mat multiplied;
+	multiply( random_mat, mask, multiplied );
+	if (countNonZero(multiplied) > 0)
+		multiplied.copyTo(mask);
+	imwrite("error/mask_randomized.png", mask);
+	// Normalize mask to GC_PR_FGD and GC_PR_BGD
+	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
+	mask += 2;
+	checkMask( *img_dc, mask );
+	
 	// Perform a single grabcut iteration for shrunk image and mask
-	shrunk_grabcut( img, mask, filters, out_mask, skelOccup, seed, 1);
-	out_mask.copyTo( mask );
-	threshold( mask, mask, 2.5, 1.0, THRESH_BINARY );
+	Mat img_shrunk;
+	resize( img, img_shrunk, img.size()/by, 0, 0, 1 );
+	int total_iters = perform_grabcut_on< uchar, double, 3 >( img_shrunk, mask, iterCount/2, epsilon );
+	//int total_iters = perform_grabcut_on< double, double, 2*CHANNELS >( *img_dc, mask, iterCount/2, epsilon );
+	delete img_cg;
+	delete img_dc;
+	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
+	imwrite("error/mask_ONE_A.png", mask);
+	resize( mask, mask, img.size(), 0, 0, 1);
+	imwrite("error/mask_ONE_B.png", mask);
+	//imwrite("error/mask_from_step_one.png", mask);
+	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
 	mask += 2;
 	checkMask( img, mask );
-	//****************************************************************************************************************//
-	/***									Second step - standard GrabCut											***/
-	//****************************************************************************************************************//
-	// Shrink our image and mask
-    Mat bgdModel = Mat(); // Our local model
-	Mat fgdModel = Mat(); // Same as above
+	//shrunk_grabcut( img, mask, filters, out_mask, skelOccup, seed, 1);
+	//out_mask.copyTo( mask );
+	//threshold( mask, mask, 2.5, 1.0, THRESH_BINARY );
+	//mask += 2;
 
-	// Building GMMs for local models
-	GMM<double, 3> bgdGMM_S( bgdModel ), fgdGMM_S( fgdModel );
-    Mat compIdxs( img.size(), CV_32SC1 );
-	
-	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
-	initGMMs< uchar, double, 3 >( img, mask, bgdGMM_S, fgdGMM_S );
-
-	// Simple parameters of our algorythm, used for setting up edge flows
-	const double gamma = 50; // Gamma seems to be just a parameter for lambda, here 50
-	const double lambda = 9*gamma; // Lambda is simply a max value for flow, be it from source or to target, here 450
-	const double beta = calcBeta< uchar, 3 >( img ); // Beta is a parameter, here 1/(2*avg(sqr(||color[i] - color[j]||)))
-												// 1 / 2*average distance in colors between neighbours
-
-	// NWeights, the flow capacity of our edges
-    Mat leftW, upleftW, upW, uprightW;
-    calcNWeights< uchar, double, 3 >( img, leftW, upleftW, upW, uprightW, beta, gamma );
-	
-	double acc_prev, acc_curr;
-	acc_prev = acc_curr = 0.0;
-	int total_iters = 0;
-	// The main loop
-	do
-    {
-		// Simply initialize the graph we will be using throughout the algorythm. It is created empty
-        GCGraph<double> graph;
-		
-		// Check the image at mask, and depending if it's FGD or BGD, return the number of component that suits it most.
-		// Answer (component numbers) is stored in compIdxs, it does not store anything else
-		assignGMMsComponents< uchar, double, 3 >( img, mask, bgdGMM_S, fgdGMM_S, compIdxs );
-
-		// This one adds samples to proper GMMs based on best component
-		// Strengthens our predictions?
-        learnGMMs< uchar, double, 3 >( img, mask, compIdxs, bgdGMM_S, fgdGMM_S );
-
-		// NOTE: As far as I can tell these two will be primarily worked upon
-		// Construct GraphCut graph, including initializing s and t values for source and sink flows
-        constructGCGraph< uchar, double, 3 >( img, mask, bgdGMM_S, fgdGMM_S, lambda, leftW, upleftW, upW, uprightW, graph );
-
-		// Using max flow algorythm calculate segmentation
-        estimateSegmentation( graph, mask );
-
-		// Calculate accuracy and update iteration count
-		++total_iters;
-		iterCount = max(iterCount-1, -1);
-		acc_prev = acc_curr;
-		acc_curr = calculateAccuracy( mask, ground_truth );
-    }
-	while (iterCount != 0 && abs(acc_curr - acc_prev) > epsilon);
+	total_iters += perform_grabcut_on< uchar, double, 3 >( img, mask, iterCount/2, epsilon );
 	mask.copyTo(out_mask);
 
 	return total_iters;
@@ -1076,8 +1000,8 @@ void make_filter( Mat& f, const int sup, const int sigma, const int tau, const i
 	// All calculations done using parallel execution with C++11 lambda.
 	// Calculate cos(...)*exp(...) part
 	Point p;
-	for (p.x = 0; p.x < f.rows; p.x++)
-		for (p.y = 0; p.y < f.cols; p.y++)
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
 		{
 			Vecf_f& value = f.at<Vecf_f>(p);
 			value[which] = cos((float)(value[which]*(M_PI*tau/sigma))) * exp(-(value[which]*value[which])/(2*sigma*sigma));
@@ -1088,8 +1012,8 @@ void make_filter( Mat& f, const int sup, const int sigma, const int tau, const i
 
 	// Calculate mean
 	float mean = 0.0;
-	for (p.x = 0; p.x < f.rows; p.x++)
-		for (p.y = 0; p.y < f.cols; p.y++)
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
 		{
 			Vecf_f& value = f.at<Vecf_f>(p);
 			mean += value[which];
@@ -1100,8 +1024,8 @@ void make_filter( Mat& f, const int sup, const int sigma, const int tau, const i
 	mean /= sup*sup;
 
 	// f=f-mean(f(:));
-	for (p.x = 0; p.x < f.rows; p.x++)
-		for (p.y = 0; p.y < f.cols; p.y++)
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
 		{
 			Vecf_f& value = f.at<Vecf_f>(p);
 			value[which] -= mean;
@@ -1112,8 +1036,8 @@ void make_filter( Mat& f, const int sup, const int sigma, const int tau, const i
 	
 	// Calculate sum
 	float sum = 0.0;
-	for (p.x = 0; p.x < f.rows; p.x++)
-		for (p.y = 0; p.y < f.cols; p.y++)
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
 		{
 			Vecf_f& value = f.at<Vecf_f>(p);
 			sum += value[which] > 0 ? value[which] : -value[which];
@@ -1123,8 +1047,8 @@ void make_filter( Mat& f, const int sup, const int sigma, const int tau, const i
 	//});
 
 	// f/sum(abs(f(:)));
-	for (p.x = 0; p.x < f.rows; p.x++)
-		for (p.y = 0; p.y < f.cols; p.y++)
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
 		{
 			Vecf_f& value = f.at<Vecf_f>(p);
 			value[which] /= sum;
@@ -1182,7 +1106,7 @@ void skel(InputArray _img, OutputArray _mask)
 	Mat img = _img.getMat();
 	Mat& mask = _mask.getMatRef();
 	cvtColor(img, img, COLOR_RGB2GRAY);
-	threshold(img, img, 10, 255, THRESH_BINARY);
+	threshold(img, img, 1.0, 255, THRESH_BINARY);
 	thinning(img, mask);
 }
 

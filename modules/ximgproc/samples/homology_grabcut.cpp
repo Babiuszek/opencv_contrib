@@ -202,7 +202,7 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 	return answer;
 }
 
-void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& image_mask_skel, const cv::Mat& filters,
+void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& filters,
 	cv::Mat& mask, double skelOccup, int iterCount, double epsilon, int verboseLevel, int mode,
 	string& toLog, double& accuracy, double& it_time, int& total_iters)
 {
@@ -226,21 +226,20 @@ public:
 		logFileName(_logFileName), source(_source), mask(_mask), out_path(_out_path), start_id(_start_id) {};
 
 	void operator()() {
+		// Randomization init
+		srand((unsigned int)time(NULL));
+
 		// Load the images
 		Mat image = imread( source, 1 );
 		Mat image_mask = imread( mask, 1 );
-		// Skel function reads an RGB image
-		Mat image_mask_skel;
-		skel( image_mask, image_mask_skel );
-		threshold( image_mask_skel, image_mask_skel, 10.0, 255.0, THRESH_BINARY );
 
 		// Transform mask to one channel binary image
 		cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
-		threshold(image_mask, image_mask, 10, 255, THRESH_BINARY);
+		threshold(image_mask, image_mask, 1.0, 255, THRESH_BINARY);
 	
 		// Initialize values for program and for logging
 		int iterCount = 4;
-		double epsilon = 0.001;
+		double epsilon = 0.05;
 		int total_iters;
 
 		fstream logFile;
@@ -257,24 +256,25 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 5; skelOccup <= 5; ++skelOccup)
+		for(int skelOccup = 3; skelOccup < 4; ++skelOccup)
 		{
 			double accuracy, it_time;
 			accuracy = it_time = 0.0;
 			Mat bin_mask;
 			bin_mask.create( mask.size(), CV_8UC1 );
 
-			for (int mode = ONE_STEP; mode < TWO_STEP; mode++)
+			for (int mode = TWO_STEP; mode < END; mode++)
 			{
 				// Perform iteration
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
-				nextIter(image, image_mask, image_mask_skel, filters,
+				nextIter(image, image_mask, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 1, mode,
 					toLog, accuracy, it_time, total_iters);
 				cv::threshold(mask, mask, 2.5, 255.0, THRESH_BINARY);
 
 				// Save calculated image mask
-				string output_file = out_path + "/" + original + "_" + toString((float)id) + ".png";
+				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "TWO" : "HOM"))
+					+ "_so" + toString((float)skelOccup/10.f) + ".png";
 				imwrite( output_file, mask );
 				// Update log string
 				toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
@@ -303,9 +303,6 @@ private:
 
 int main( int argc, char** argv )
 {
-	// Randomization init
-	srand((unsigned int)time(NULL));
-
 	// Initialize paths
 	char* log_path = argc >= 2 ? argv[1] : (char*)"log.csv";
 	
@@ -353,13 +350,24 @@ int main( int argc, char** argv )
 			}
 	}
 	
+	/*//Enlarging database images
+	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
+	{
+		Mat A = imread( sources.at(i->first) ,1 );
+		resize( A, A, A.size()*3, 0, 0, 1 );
+		imwrite( "bin/images/sources/" + getFileName( sources.at(i->first) ) + ".png", A );
+		
+		Mat B = imread( masks.at(i->second) ,1 );
+		resize( B, B, B.size()*3, 0, 0, 1 );
+		imwrite( "bin/images/ground_truths/" + getFileName( masks.at(i->second) ) + ".png", B );
+	}*/
 	// Create threads
 	boost::thread_group threads;
 	int id = 0;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
-		boost::thread thread(w);
+		boost::thread thread( w );
 		thread.join();
 	}
 	/*for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
