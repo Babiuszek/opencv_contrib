@@ -44,6 +44,7 @@
 #include "precomp.hpp"
 #include "gcgraph.hpp"
 #include "thinning.hpp"
+#include <time.h>
 #include <limits>
 
 #include <opencv2/imgproc.hpp>
@@ -707,6 +708,74 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 	// And done!
 	return output;
 }
+Mat* shrink_all_colors( const Mat& input, Mat& mask, const int by )
+{
+	// Create our shrunk Material
+	Mat* output = new Mat( input.rows/by, input.cols/by, CV_64FC(6*CHANNELS) );
+
+	// For each point in ouput image...
+	Point p_i; // Input iterator
+	Point p_o; // Output iterator
+    for( p_o.y = 0; p_o.y < output->rows; p_o.y++ )
+    {
+        for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
+		{
+			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
+			Vec<double, 6*CHANNELS>& values = output->at<Vec<double, 6*CHANNELS>>(p_o);
+			// ...initialize base values as 0
+			for (int i = 0; i < 6*CHANNELS; i++)
+				values[i] = 0.0;
+
+			// And calculate these values using the area from input image. We first calculate the means
+			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
+			{
+				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
+				{
+					Vec<double, 3*CHANNELS> color = input.at<Vec<double, 3*CHANNELS>>(p_i);
+					for (int i = 0; i < 3*CHANNELS; i++)
+						values[i] += color.val[i];
+				}
+			}
+			for (int i = 0; i < 3*CHANNELS; i++)
+				values[i] /= by*by;
+			
+			// Then calculate the standard deviations
+			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
+			{
+				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
+				{
+					Vec<double, 3*CHANNELS> color = input.at<Vec<double, 3*CHANNELS>>(p_i);
+					for (int i = 0; i < 3*CHANNELS; i++)
+						values[3*CHANNELS+i] += pow(values[i] - color.val[i], 2);
+				}
+			}
+			for (int i = 3*CHANNELS; i < 6*CHANNELS; i++)
+				values[i] = sqrt(values[i] / (by*by));
+		}
+	}
+
+	// Now time to shrink the mask
+	Mat out_mask;
+	out_mask.create( output->rows, output->cols, CV_8UC1 );
+	out_mask.setTo( Scalar(0) );
+	for( p_o.y = 0; p_o.y < out_mask.rows; p_o.y++ )
+    {
+        for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
+		{
+			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
+			uchar& value = out_mask.at<uchar>(p_o);
+
+			// And calculate these values using the area from input image. We first calculate the means
+			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
+				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
+					value = max(mask.at<uchar>(p_i), value);
+		}
+	}
+	out_mask.copyTo(mask);
+
+	// And done!
+	return output;
+}
 
 // Function that copies the answer from shrunk image onto the bigger mask
 void expandShrunkMat(const Mat& input, Mat& output, const int by)
@@ -752,6 +821,31 @@ Mat* grey_and_expand( const Mat& input )
 			// Set all other values to the calculated value
 			for (int i = 1; i < CHANNELS; i++)
 				vo[i] = vo[0];
+		}
+	}
+
+	// All done, return the answer
+	return output;
+}
+Mat* expand_all_colors( const Mat& input )
+{
+	// Create output material of input size and n dimensions
+	Mat* output = new Mat(input.rows, input.cols, CV_64FC(3*CHANNELS));
+	
+	// Calculate grayscale values
+	Point p;
+	for (p.y = 0; p.y < input.rows; p.y++)
+	{
+		for (p.x = 0; p.x < input.cols; p.x++)
+		{
+			const Vec3b vi = input.at<Vec3b>(p);
+			Vec<double, 3*CHANNELS>& vo = output->at<Vec<double, 3*CHANNELS>>(p);
+			for (int i = 3; i < 3*CHANNELS; i += 3)
+			{
+				vo[i] = vo[0];
+				vo[i+1] = vo[1];
+				vo[i+2] = vo[2];
+			}
 		}
 	}
 
@@ -910,8 +1004,10 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 }
 
 int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, InputArray _ground_truth, 
-	OutputArray _out_mask, double skelOccup, uint64 seed, int iterCount, double epsilon )
+	OutputArray _out_mask, double& it_time1, double& it_time2,
+	double skelOccup, uint64 seed, int iterCount, double epsilon )
 {
+#define NORMAL
 	const int by = 10;
 
 	// Standard null checking procedure
@@ -926,7 +1022,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	_mask.getMat().copyTo(mask);
 	_filters.getMat().copyTo(filters);
 	_ground_truth.getMat().copyTo(ground_truth);
-	
+#ifdef NORMAL
 	// Initialization
 	Mat* img_cg = grey_and_expand( img ); //14 CHANNELS Dimensional Grey
 
@@ -970,8 +1066,82 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	// Perform a single grabcut iteration for shrunk image and mask
 	Mat img_shrunk;
 	resize( img, img_shrunk, img.size()/by, 0, 0, 1 );
+
+	clock_t start = clock();
 	int total_iters = perform_grabcut_on< uchar, double, 3 >( img_shrunk, mask, iterCount/2, epsilon );
-	//int total_iters = perform_grabcut_on< double, double, 2*CHANNELS >( *img_dc, mask, iterCount/2, epsilon );
+	clock_t finish = clock();
+	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+
+	delete img_cg;
+	delete img_dc;
+	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
+	imwrite("error/mask_ONE_A.png", mask);
+	resize( mask, mask, img.size(), 0, 0, 1);
+	imwrite("error/mask_ONE_B.png", mask);
+	//imwrite("error/mask_from_step_one.png", mask);
+	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
+	mask += 2;
+	checkMask( img, mask );
+	//shrunk_grabcut( img, mask, filters, out_mask, skelOccup, seed, 1);
+	//out_mask.copyTo( mask );
+	//threshold( mask, mask, 2.5, 1.0, THRESH_BINARY );
+	//mask += 2;
+
+	start = clock();
+	total_iters += perform_grabcut_on< uchar, double, 3 >( img, mask, iterCount/2, epsilon );
+	finish = clock();
+	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+
+	mask.copyTo(out_mask);
+
+	return total_iters;
+#endif
+#ifdef GREY_CHANNELS
+	// Initialization
+	Mat* img_cg = grey_and_expand( img ); //14 CHANNELS Dimensional Grey
+
+	// Applying filters
+	Mat img_cg_v[CHANNELS]; // Vector of values for filter2D usage
+	Mat filters_v[FILTERS]; // Vector of filters for filter2D usage
+	split( *img_cg, img_cg_v );
+	split( filters, filters_v );
+	for (int i = 0; i < FILTERS; i++)
+	{
+		// Apply the filter. Default values are:
+		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
+		filter2D( img_cg_v[i+1], img_cg_v[i+1], CV_64F, filters_v[i] );
+	}
+	// Build back our final solution
+	merge( img_cg_v, CHANNELS, *img_cg );
+	
+	// Shrink the image and mask to get 28 channels
+	imwrite("error/mask.png", mask);
+    Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
+	imwrite("error/mask_shrunk.png", mask);
+	thinning(mask, mask);
+	imwrite("error/mask_skelled.png", mask);
+	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
+
+	// Randomizing values of input mask for given threshold
+	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
+	RNG rng = RNG(seed);
+	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
+	threshold(random_mat, random_mat, 255.0*(1.0 - skelOccup), 1, THRESH_BINARY);
+	Mat multiplied;
+	multiply( random_mat, mask, multiplied );
+	if (countNonZero(multiplied) > 0)
+		multiplied.copyTo(mask);
+	imwrite("error/mask_randomized.png", mask);
+	// Normalize mask to GC_PR_FGD and GC_PR_BGD
+	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
+	mask += 2;
+	checkMask( *img_dc, mask );
+	
+	// Perform a single grabcut iteration for shrunk image and mask
+	Mat img_shrunk;
+	resize( img, img_shrunk, img.size()/by, 0, 0, 1 );
+	//int total_iters = perform_grabcut_on< uchar, double, 3 >( img_shrunk, mask, iterCount/2, epsilon );
+	int total_iters = perform_grabcut_on< double, double, 2*CHANNELS >( *img_dc, mask, iterCount/2, epsilon );
 	delete img_cg;
 	delete img_dc;
 	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
@@ -991,6 +1161,74 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	mask.copyTo(out_mask);
 
 	return total_iters;
+#endif
+#ifdef ALL_COLORS
+	// Initialization
+	Mat* img_cg = expand_all_colors( img ); //3*14 CHANNELS Dimensional Grey
+
+	// Applying filters
+	Mat img_cg_v[3*CHANNELS]; // Vector of values for filter2D usage
+	Mat filters_v[FILTERS]; // Vector of filters for filter2D usage
+	split( *img_cg, img_cg_v );
+	split( filters, filters_v );
+	for (int i = 0; i < FILTERS; i++)
+	{
+		// Apply the filter. Default values are:
+		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
+		filter2D( img_cg_v[3*(i+1)], img_cg_v[i+1], CV_64F, filters_v[i] );
+		filter2D( img_cg_v[3*(i+1) + 1], img_cg_v[i+1], CV_64F, filters_v[i] );
+		filter2D( img_cg_v[3*(i+1) + 2], img_cg_v[i+1], CV_64F, filters_v[i] );
+	}
+	// Build back our final solution
+	merge( img_cg_v, 3*CHANNELS, *img_cg );
+	
+	// Shrink the image and mask to get 28 channels
+	imwrite("error/mask.png", mask);
+    Mat* img_dc = shrink_all_colors( *img_cg, mask, by ); // Image double channels (shrunk)
+	imwrite("error/mask_shrunk.png", mask);
+	thinning(mask, mask);
+	imwrite("error/mask_skelled.png", mask);
+	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
+
+	// Randomizing values of input mask for given threshold
+	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
+	RNG rng = RNG(seed);
+	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
+	threshold(random_mat, random_mat, 255.0*(1.0 - skelOccup), 1, THRESH_BINARY);
+	Mat multiplied;
+	multiply( random_mat, mask, multiplied );
+	if (countNonZero(multiplied) > 0)
+		multiplied.copyTo(mask);
+	imwrite("error/mask_randomized.png", mask);
+	// Normalize mask to GC_PR_FGD and GC_PR_BGD
+	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
+	mask += 2;
+	checkMask( *img_dc, mask );
+	
+	// Perform a single grabcut iteration for shrunk image and mask
+	Mat img_shrunk;
+	resize( img, img_shrunk, img.size()/by, 0, 0, 1 );
+	int total_iters = perform_grabcut_on< double, double, 6*CHANNELS >( *img_dc, mask, iterCount/2, epsilon );
+	delete img_cg;
+	delete img_dc;
+	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
+	imwrite("error/mask_ONE_A.png", mask);
+	resize( mask, mask, img.size(), 0, 0, 1);
+	imwrite("error/mask_ONE_B.png", mask);
+	//imwrite("error/mask_from_step_one.png", mask);
+	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
+	mask += 2;
+	checkMask( img, mask );
+	//shrunk_grabcut( img, mask, filters, out_mask, skelOccup, seed, 1);
+	//out_mask.copyTo( mask );
+	//threshold( mask, mask, 2.5, 1.0, THRESH_BINARY );
+	//mask += 2;
+
+	total_iters += perform_grabcut_on< uchar, double, 3 >( img, mask, iterCount/2, epsilon );
+	mask.copyTo(out_mask);
+
+	return total_iters;
+#endif
 }
 
 // Create a single filter in accordance to

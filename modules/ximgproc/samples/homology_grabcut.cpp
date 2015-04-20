@@ -19,7 +19,7 @@
 using namespace std;
 using namespace cv;
 
-boost::mutex mtx;
+//boost::mutex mtx;
 
 enum MODE {
 	ONE_STEP	= 0,
@@ -116,6 +116,8 @@ int getID(string& line)
 }
 string toString(float value)
 {
+	if (value == 0.f)
+		return "0.0";
 	// Init
 	string Ans = "";
 	char c;
@@ -204,16 +206,17 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 
 void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& filters,
 	cv::Mat& mask, double skelOccup, int iterCount, double epsilon, int verboseLevel, int mode,
-	string& toLog, double& accuracy, double& it_time, int& total_iters)
+	string& toLog, double& accuracy, double& total_time, double& it_time1, double& it_time2, int& total_iters)
 {
 	// Perform grabcut and measure it's time and number of iterations
 	clock_t start = clock();
 	if (mode == ONE_STEP)
 		total_iters = one_step_grabcut( image, image_mask, image_mask, mask, skelOccup, rand(), iterCount, epsilon);
 	else if (mode == TWO_STEP)
-		total_iters = two_step_grabcut( image, image_mask, filters, image_mask, mask, skelOccup, rand(), iterCount, epsilon );
+		total_iters = two_step_grabcut( image, image_mask, filters, image_mask, mask, it_time1, it_time2,
+										skelOccup, rand(), iterCount, epsilon );
 	clock_t finish = clock();
-	it_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	total_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
 	// Calculate and save accuracy
 	accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
@@ -256,10 +259,10 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 1; skelOccup < 6; ++skelOccup)
+		for(int skelOccup = 2; skelOccup < 6; ++skelOccup)
 		{
-			double accuracy, it_time;
-			accuracy = it_time = 0.0;
+			double accuracy, it_time1, it_time2, total_time;
+			accuracy = total_time = it_time1 = it_time2 = 0.0;
 			Mat bin_mask;
 			bin_mask.create( mask.size(), CV_8UC1 );
 
@@ -269,7 +272,7 @@ public:
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
 				nextIter(image, image_mask, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 1, mode,
-					toLog, accuracy, it_time, total_iters);
+					toLog, accuracy, total_time, it_time1, it_time2, total_iters);
 				cv::threshold(mask, mask, 2.5, 255.0, THRESH_BINARY);
 
 				// Save calculated image mask
@@ -277,9 +280,14 @@ public:
 					+ "_so" + toString((float)skelOccup/10.f) + ".png";
 				imwrite( output_file, mask );
 				// Update log string
-				toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
-					toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-					toString((float)it_time) + ";" + output_file + "\n";
+				if (mode == ONE_STEP)
+					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
+						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
+						toString((float)total_time) + ";" + toString(0.f) + ";" + toString(0.f) + ";" + output_file + "\n";
+				else
+					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
+						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
+						toString((float)total_time) + ";" + toString(it_time1) + ";" + toString(it_time2) + ";" + output_file + "\n";
 				++id;
 			}
 		}
@@ -362,7 +370,7 @@ int main( int argc, char** argv )
 		imwrite( "bin/images/ground_truths/" + getFileName( masks.at(i->second) ) + ".png", B );
 	}*/
 	// Create threads
-	int id = 0;
+	int id = 1;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
@@ -370,7 +378,6 @@ int main( int argc, char** argv )
 		id += 10;
 	}
 	/*boost::thread_group threads;
-	int id = 0;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
