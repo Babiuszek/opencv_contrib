@@ -256,14 +256,14 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 3; skelOccup < 4; ++skelOccup)
+		for(int skelOccup = 1; skelOccup < 6; ++skelOccup)
 		{
 			double accuracy, it_time;
 			accuracy = it_time = 0.0;
 			Mat bin_mask;
 			bin_mask.create( mask.size(), CV_8UC1 );
 
-			for (int mode = TWO_STEP; mode < END; mode++)
+			for (int mode = ONE_STEP; mode < END; mode++)
 			{
 				// Perform iteration
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
@@ -362,14 +362,21 @@ int main( int argc, char** argv )
 		imwrite( "bin/images/ground_truths/" + getFileName( masks.at(i->second) ) + ".png", B );
 	}*/
 	// Create threads
-	boost::thread_group threads;
+	int id = 0;
+	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
+	{
+		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
+		w();
+		id += 10;
+	}
+	/*boost::thread_group threads;
 	int id = 0;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
 		boost::thread thread( w );
 		thread.join();
-	}
+	}*/
 	/*for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
