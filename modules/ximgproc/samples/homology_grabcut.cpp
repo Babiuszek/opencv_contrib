@@ -63,7 +63,7 @@ void GetFilesInDirectory(std::vector<std::string> &out, const std::string &direc
 			continue;
 		if (dp->d_type == DT_DIR)
 			continue;
-		out.push_back(dp->d_name);
+		out.push_back(directory + "/" + dp->d_name);
 	}
 	(void)closedir(dirp);
 #endif
@@ -362,6 +362,7 @@ int main( int argc, char** argv )
 	//Enlarging database images
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
+		cout << sources.at(i->first) << " == " << masks.at(i->second) << endl;
 		Mat A = imread( sources.at(i->first) ,1 );
 		resize( A, A, A.size()*5, 0, 0, 1 );
 		imwrite( "bin/images/sources_enlarged/" + getFileName( sources.at(i->first) ) + ".png", A );
