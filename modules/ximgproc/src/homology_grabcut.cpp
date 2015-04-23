@@ -853,39 +853,6 @@ Mat* expand_all_colors( const Mat& input )
 	return output;
 }
 
-// Calculate accuracy of the mask given ground truth
-double calculateAccuracy(const cv::Mat& output, const cv::Mat& key)
-{
-	int tp = 0;
-	int tn = 0;
-	int fp = 0;
-	int fn = 0;
-	int wv = 0;
-	for (int i = 0; i < output.rows; i++)
-		for (int j = 0; j < output.cols; j++)
-		{
-			int value = (int)output.at<uchar>(i, j);
-			int answer = (int)key.at<uchar>(i, j);
-			
-			if (value == GC_BGD || value == GC_PR_BGD)
-				value = GC_PR_BGD;
-			else value = GC_PR_FGD;
-			answer = answer / 255 + 2;
-
-			if (value == GC_PR_FGD && answer == GC_PR_FGD)
-				tp++;
-			else if (value == GC_PR_BGD && answer == GC_PR_BGD)
-				tn++;
-			else if (value == GC_PR_FGD && answer == GC_PR_BGD)
-				fp++;
-			else if (value == GC_PR_BGD && answer == GC_PR_FGD)
-				fn++;
-			else
-				wv++;
-		}
-	return (double)(tp+tn)/(tp+tn+fp+fn);
-}
-
 template <typename ImgType, typename DataType, int DataLength>
 int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon)
 {
@@ -996,7 +963,8 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 	checkMask( img, mask );
 
 	// Perform grabcut
-	int total_iters = perform_grabcut_on<uchar, double, 3>(img, mask, iterCount, epsilon);
+	cvtColor( img, img, COLOR_RGB2GRAY );
+	int total_iters = perform_grabcut_on<uchar, double, 1>(img, mask, iterCount, epsilon);
 
 	// Save and return output
 	mask.copyTo(output_mask);
@@ -1087,8 +1055,10 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	//threshold( mask, mask, 2.5, 1.0, THRESH_BINARY );
 	//mask += 2;
 
+	cvtColor( img, img, COLOR_RGB2GRAY );
+
 	start = clock();
-	total_iters += perform_grabcut_on< uchar, double, 3 >( img, mask, iterCount/2, epsilon );
+	total_iters += perform_grabcut_on< uchar, double, 1 >( img, mask, iterCount/2, epsilon );
 	finish = clock();
 	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 

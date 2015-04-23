@@ -11,9 +11,10 @@
 #ifdef _WINDOWS
 	#include <Windows.h>
 #else
-#include <sys/types.h>
-#include <dirent.h>
-#include <errno.h>
+	#include <pthread.h>
+	#include <sys/types.h>
+	#include <dirent.h>
+	#include <errno.h>
 #endif
 
 using namespace std;
@@ -276,7 +277,7 @@ public:
 				cv::threshold(mask, mask, 2.5, 255.0, THRESH_BINARY);
 
 				// Save calculated image mask
-				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "TWO" : "HOM"))
+				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : "_HOM"))
 					+ "_so" + toString((float)skelOccup/10.f) + ".png";
 				imwrite( output_file, mask );
 				// Update log string
@@ -293,7 +294,7 @@ public:
 		}
 		// Initalize log file
 		{
-			boost::lock_guard<boost::mutex> lock(mtx);
+			//boost::lock_guard<boost::mutex> lock(mtx);
 			logFile.open( logFileName.c_str(), ios::out | ios::ate | ios::app );
 			for (unsigned int i = 0; i < toLog.length(); i++)
 				logFile.write(&toLog.at(i), 1);
@@ -358,25 +359,25 @@ int main( int argc, char** argv )
 			}
 	}
 	
-	/*//Enlarging database images
+	//Enlarging database images
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Mat A = imread( sources.at(i->first) ,1 );
-		resize( A, A, A.size()*3, 0, 0, 1 );
-		imwrite( "bin/images/sources/" + getFileName( sources.at(i->first) ) + ".png", A );
+		resize( A, A, A.size()*5, 0, 0, 1 );
+		imwrite( "bin/images/sources_enlarged/" + getFileName( sources.at(i->first) ) + ".png", A );
 		
 		Mat B = imread( masks.at(i->second) ,1 );
-		resize( B, B, B.size()*3, 0, 0, 1 );
-		imwrite( "bin/images/ground_truths/" + getFileName( masks.at(i->second) ) + ".png", B );
-	}*/
+		resize( B, B, B.size()*5, 0, 0, 1 );
+		imwrite( "bin/images/ground_truths_enlarged/" + getFileName( masks.at(i->second) ) + ".png", B );
+	}
 	// Create threads
-	int id = 1;
+	/*int id = 1;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
 		w();
 		id += 10;
-	}
+	}*/
 	/*boost::thread_group threads;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
