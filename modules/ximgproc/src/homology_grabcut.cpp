@@ -721,7 +721,7 @@ Mat* shrink_all_colors( const Mat& input, Mat& mask, const int by )
         for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
 		{
 			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
-			Vec<double, 6*CHANNELS>& values = output->at<Vec<double, 6*CHANNELS>>(p_o);
+			Vec<double, 6*CHANNELS>& values = output->at<Vec<double, 6*CHANNELS> >(p_o);
 			// ...initialize base values as 0
 			for (int i = 0; i < 6*CHANNELS; i++)
 				values[i] = 0.0;
@@ -731,7 +731,7 @@ Mat* shrink_all_colors( const Mat& input, Mat& mask, const int by )
 			{
 				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
 				{
-					Vec<double, 3*CHANNELS> color = input.at<Vec<double, 3*CHANNELS>>(p_i);
+					Vec<double, 3*CHANNELS> color = input.at<Vec<double, 3*CHANNELS> >(p_i);
 					for (int i = 0; i < 3*CHANNELS; i++)
 						values[i] += color.val[i];
 				}
@@ -744,7 +744,7 @@ Mat* shrink_all_colors( const Mat& input, Mat& mask, const int by )
 			{
 				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
 				{
-					Vec<double, 3*CHANNELS> color = input.at<Vec<double, 3*CHANNELS>>(p_i);
+					Vec<double, 3*CHANNELS> color = input.at<Vec<double, 3*CHANNELS> >(p_i);
 					for (int i = 0; i < 3*CHANNELS; i++)
 						values[3*CHANNELS+i] += pow(values[i] - color.val[i], 2);
 				}
@@ -839,7 +839,7 @@ Mat* expand_all_colors( const Mat& input )
 		for (p.x = 0; p.x < input.cols; p.x++)
 		{
 			const Vec3b vi = input.at<Vec3b>(p);
-			Vec<double, 3*CHANNELS>& vo = output->at<Vec<double, 3*CHANNELS>>(p);
+			Vec<double, 3*CHANNELS>& vo = output->at<Vec<double, 3*CHANNELS> >(p);
 			for (int i = 3; i < 3*CHANNELS; i += 3)
 			{
 				vo[i] = vo[0];
