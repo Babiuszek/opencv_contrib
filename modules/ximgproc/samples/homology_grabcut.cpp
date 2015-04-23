@@ -68,6 +68,7 @@ void GetFilesInDirectory(std::vector<std::string> &out, const std::string &direc
 	(void)closedir(dirp);
 #endif
 } // GetFilesInDirectory
+
 std::string getFileType(const std::string &file)
 {
 	std::string ans = "";
