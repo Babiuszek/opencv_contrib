@@ -250,7 +250,7 @@ public:
 		string toLog = "";
 		string original = "";
 		original = original + getFileName( source );
-		int id = 0;
+		int id = start_id;
 
 		// Create filters
 		Mat filters;
@@ -260,7 +260,7 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 2; skelOccup < 6; ++skelOccup)
+		for(int skelOccup = 1; skelOccup < 6; ++skelOccup)
 		{
 			double accuracy, it_time1, it_time2, total_time;
 			accuracy = total_time = it_time1 = it_time2 = 0.0;
@@ -278,17 +278,17 @@ public:
 
 				// Save calculated image mask
 				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : "_HOM"))
-					+ "_so" + toString((float)skelOccup/10.f) + ".png";
+					+ "_so" + to_string((long double)skelOccup/10.0) + ".png";
 				imwrite( output_file, mask );
 				// Update log string
 				if (mode == ONE_STEP)
-					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
-						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-						toString((float)total_time) + ";" + toString(0.f) + ";" + toString(0.f) + ";" + output_file + "\n";
+					toLog = toLog + to_string((_Longlong)id) + ";" + to_string((long double)skelOccup/10) + ";" + to_string((_Longlong)mode) + ";" +
+						to_string((long double)accuracy) + ";" + to_string((_Longlong)total_iters) + ";" +
+						to_string((long double)total_time) + ";" + to_string((long double)0.0) + ";" + to_string((long double)0.0) + ";" + output_file + "\n";
 				else
-					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
-						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-						toString((float)total_time) + ";" + toString(it_time1) + ";" + toString(it_time2) + ";" + output_file + "\n";
+					toLog = toLog + to_string((_Longlong)id) + ";" + to_string((long double)skelOccup/10) + ";" + to_string((_Longlong)mode) + ";" +
+						to_string((long double)accuracy) + ";" + to_string((_Longlong)total_iters) + ";" +
+						to_string((long double)total_time) + ";" + to_string((long double)it_time1) + ";" + to_string((long double)it_time2) + ";" + output_file + "\n";
 				++id;
 			}
 		}
@@ -313,7 +313,7 @@ private:
 int main( int argc, char** argv )
 {
 	// Initialize paths
-	char* log_path = argc >= 2 ? argv[1] : (char*)"log.csv";
+	char* log_path = argc >= 2 ? argv[1] : (char*)"./bin/log.csv";
 	
 	// Load images from given (or default) source folder
 	char* filename = argc >= 3 ? argv[2] : (char*)"./bin/images/sources_enlarged";
@@ -338,7 +338,7 @@ int main( int argc, char** argv )
 	}
 
 	// And last but not least the out path
-	char* out_path = argc >= 5 ? argv[4] : (char*)"./answers";
+	char* out_path = argc >= 5 ? argv[4] : (char*)"./bin/answers";
 	
 	// Pairing up sources with their masks
 	std::vector<std::pair<int, int> > pairs;
@@ -369,6 +369,8 @@ int main( int argc, char** argv )
 		id += 10;
 	}
 	threads.join_all();
+
+	PCA pca();
 
     return 0;
 }
