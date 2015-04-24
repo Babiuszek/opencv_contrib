@@ -974,8 +974,8 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 }
 
 int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, InputArray _ground_truth, 
-	OutputArray _out_mask, double& it_time1, double& it_time2,
-	double skelOccup, uint64 seed, int iterCount, double epsilon )
+		OutputArray _out_mask, double& it_time1, double& it_time2,
+		double skelOccup, uint64 seed, int iterCount, double epsilon )
 {
 #define GREY_CHANNELS
 	const int by = 10;
@@ -1187,6 +1187,32 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	mask.copyTo(out_mask);
 	return total_iters;
 #endif
+}
+
+int homology_grabcut(InputArray _img, InputArray _mask,
+		OutputArray _output_mask, double& it_time1, double& it_time2,
+		double SkelOccup=1.0, uint64 seed=0, int IterCount=1, double epsilon=0.001)
+{
+	Mat img = _img.getMat();
+	Mat mask = _mask.getMat();
+	Mat& output_mask = _output_mask.getMatRef();
+
+	// Creating capd image
+	std::vector< std::vector< double > > capd_img;
+	Point p;
+	for (p.y = 0; p.y < img.rows; p.y++)
+		for (p.x = 0; p.x < img.cols; p.x++)
+		{
+			std::vector< double > vec;
+			vec.push_back( (double)img.at<uchar>(p) );
+			capd_img.push_back( vec );
+		}
+
+	// Create capd diagram and initialize it with homology
+	ImagePersistentHomology IPH( capd_img );
+	std::vector< std::pair< double, double > > diagram = IPH();
+
+	return 0;
 }
 
 // Create a single filter in accordance to
