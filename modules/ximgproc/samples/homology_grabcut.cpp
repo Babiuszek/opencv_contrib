@@ -260,7 +260,7 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 2; skelOccup < 6; ++skelOccup)
+		for(int skelOccup = 3; skelOccup < 6; ++skelOccup)
 		{
 			double accuracy, it_time1, it_time2, total_time;
 			accuracy = total_time = it_time1 = it_time2 = 0.0;
