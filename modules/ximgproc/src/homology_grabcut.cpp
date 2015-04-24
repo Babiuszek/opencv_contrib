@@ -38,6 +38,8 @@
 // the use of this software, even if advised of the possibility of such damage.
 //
 //M*/
+#include "capd/apiRedHom/Algorithms.h"
+
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
 
@@ -466,8 +468,8 @@ static void initGMMs( const Mat& img, const Mat& mask,
 	if (bgdSamples.empty() || fgdSamples.empty())
 	{
 		std::cout << "bgdSamples=" << bgdSamples.size() << ", fgdSamples=" << fgdSamples.size() << std::endl;
-		//imwrite("error/er_image.png", img);
-		//imwrite("error/er_mask.png", mask);
+		imwrite("bin/error/er_image.png", img);
+		imwrite("bin/error/er_mask.png", mask);
 	}
     CV_Assert( !bgdSamples.empty() && !fgdSamples.empty() );
 
@@ -942,7 +944,7 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 	_mask.getMat().copyTo(mask);
 	resize(mask, mask, mask.size()/by, 0, 0, 1);
 	threshold(mask, mask, 1.0, 255.0, THRESH_BINARY);
-	thinning(mask, mask);
+	//thinning(mask, mask);
 	threshold(mask, mask, 1.0, 255.0, THRESH_BINARY);
 
 	// Randomizing values of input mask for given threshold
@@ -1012,7 +1014,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	//imwrite("error/mask.png", mask);
     Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
 	//imwrite("error/mask_shrunk.png", mask);
-	thinning(mask, mask);
+	//thinning(mask, mask);
 	//imwrite("error/mask_skelled.png", mask);
 	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
 
@@ -1088,7 +1090,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	//imwrite("error/mask.png", mask);
     Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
 	//imwrite("error/mask_shrunk.png", mask);
-	thinning(mask, mask);
+	//thinning(mask, mask);
 	//imwrite("error/mask_skelled.png", mask);
 	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
 

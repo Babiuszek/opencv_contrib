@@ -260,7 +260,7 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 3; skelOccup < 6; ++skelOccup)
+		for(int skelOccup = 2; skelOccup < 6; ++skelOccup)
 		{
 			double accuracy, it_time1, it_time2, total_time;
 			accuracy = total_time = it_time1 = it_time2 = 0.0;
@@ -361,6 +361,7 @@ int main( int argc, char** argv )
 	
 	// Creating work threads
 	int id = 0;
+	
 	boost::thread_group threads;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
@@ -369,6 +370,6 @@ int main( int argc, char** argv )
 		id += 10;
 	}
 	threads.join_all();
-
-    return 0;
+	
+	return 0;
 }
