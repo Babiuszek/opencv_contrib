@@ -39,8 +39,6 @@
 //
 //M*/
 
-#include "opencv2/imgproc.hpp"
-#include "opencv2/highgui.hpp"
 #include "precomp.hpp"
 #include "gcgraph.hpp"
 #include "thinning.hpp"
@@ -466,8 +464,8 @@ static void initGMMs( const Mat& img, const Mat& mask,
 	if (bgdSamples.empty() || fgdSamples.empty())
 	{
 		std::cout << "bgdSamples=" << bgdSamples.size() << ", fgdSamples=" << fgdSamples.size() << std::endl;
-		imwrite("error/image.png", img);
-		imwrite("error/mask.png", mask);
+		//imwrite("error/image.png", img);
+		//imwrite("error/mask.png", mask);
 	}
     CV_Assert( !bgdSamples.empty() && !fgdSamples.empty() );
 
@@ -1009,11 +1007,11 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	merge( img_cg_v, CHANNELS, *img_cg );
 	
 	// Shrink the image and mask to get 28 channels
-	imwrite("error/mask.png", mask);
+	//imwrite("error/mask.png", mask);
     Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
-	imwrite("error/mask_shrunk.png", mask);
+	//imwrite("error/mask_shrunk.png", mask);
 	thinning(mask, mask);
-	imwrite("error/mask_skelled.png", mask);
+	//imwrite("error/mask_skelled.png", mask);
 	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
 
 	// Randomizing values of input mask for given threshold
@@ -1025,7 +1023,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	multiply( random_mat, mask, multiplied );
 	if (countNonZero(multiplied) > 0)
 		multiplied.copyTo(mask);
-	imwrite("error/mask_randomized.png", mask);
+	//imwrite("error/mask_randomized.png", mask);
 	// Normalize mask to GC_PR_FGD and GC_PR_BGD
 	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
 	mask += 2;
@@ -1043,9 +1041,9 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	delete img_cg;
 	delete img_dc;
 	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
-	imwrite("error/mask_ONE_A.png", mask);
+	//imwrite("error/mask_ONE_A.png", mask);
 	resize( mask, mask, img.size(), 0, 0, 1);
-	imwrite("error/mask_ONE_B.png", mask);
+	//imwrite("error/mask_ONE_B.png", mask);
 	//imwrite("error/mask_from_step_one.png", mask);
 	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
 	mask += 2;
@@ -1085,11 +1083,11 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	merge( img_cg_v, CHANNELS, *img_cg );
 	
 	// Shrink the image and mask to get 28 channels
-	imwrite("error/mask.png", mask);
+	//imwrite("error/mask.png", mask);
     Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
-	imwrite("error/mask_shrunk.png", mask);
+	//imwrite("error/mask_shrunk.png", mask);
 	thinning(mask, mask);
-	imwrite("error/mask_skelled.png", mask);
+	//imwrite("error/mask_skelled.png", mask);
 	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
 
 	// Randomizing values of input mask for given threshold
@@ -1101,7 +1099,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	multiply( random_mat, mask, multiplied );
 	if (countNonZero(multiplied) > 0)
 		multiplied.copyTo(mask);
-	imwrite("error/mask_randomized.png", mask);
+	//imwrite("error/mask_randomized.png", mask);
 	// Normalize mask to GC_PR_FGD and GC_PR_BGD
 	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
 	mask += 2;
@@ -1115,76 +1113,9 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	delete img_cg;
 	delete img_dc;
 	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
-	imwrite("error/mask_ONE_A.png", mask);
+	//imwrite("error/mask_ONE_A.png", mask);
 	resize( mask, mask, img.size(), 0, 0, 1);
-	imwrite("error/mask_ONE_B.png", mask);
-	//imwrite("error/mask_from_step_one.png", mask);
-	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
-	mask += 2;
-	checkMask( img, mask );
-	//shrunk_grabcut( img, mask, filters, out_mask, skelOccup, seed, 1);
-	//out_mask.copyTo( mask );
-	//threshold( mask, mask, 2.5, 1.0, THRESH_BINARY );
-	//mask += 2;
-
-	total_iters += perform_grabcut_on< uchar, double, 3 >( img, mask, iterCount/2, epsilon );
-	mask.copyTo(out_mask);
-
-	return total_iters;
-#endif
-#ifdef ALL_COLORS
-	// Initialization
-	Mat* img_cg = expand_all_colors( img ); //3*14 CHANNELS Dimensional Grey
-
-	// Applying filters
-	Mat img_cg_v[3*CHANNELS]; // Vector of values for filter2D usage
-	Mat filters_v[FILTERS]; // Vector of filters for filter2D usage
-	split( *img_cg, img_cg_v );
-	split( filters, filters_v );
-	for (int i = 0; i < FILTERS; i++)
-	{
-		// Apply the filter. Default values are:
-		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
-		filter2D( img_cg_v[3*(i+1)], img_cg_v[i+1], CV_64F, filters_v[i] );
-		filter2D( img_cg_v[3*(i+1) + 1], img_cg_v[i+1], CV_64F, filters_v[i] );
-		filter2D( img_cg_v[3*(i+1) + 2], img_cg_v[i+1], CV_64F, filters_v[i] );
-	}
-	// Build back our final solution
-	merge( img_cg_v, 3*CHANNELS, *img_cg );
-	
-	// Shrink the image and mask to get 28 channels
-	imwrite("error/mask.png", mask);
-    Mat* img_dc = shrink_all_colors( *img_cg, mask, by ); // Image double channels (shrunk)
-	imwrite("error/mask_shrunk.png", mask);
-	thinning(mask, mask);
-	imwrite("error/mask_skelled.png", mask);
-	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
-
-	// Randomizing values of input mask for given threshold
-	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
-	RNG rng = RNG(seed);
-	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
-	threshold(random_mat, random_mat, 255.0*(1.0 - skelOccup), 1, THRESH_BINARY);
-	Mat multiplied;
-	multiply( random_mat, mask, multiplied );
-	if (countNonZero(multiplied) > 0)
-		multiplied.copyTo(mask);
-	imwrite("error/mask_randomized.png", mask);
-	// Normalize mask to GC_PR_FGD and GC_PR_BGD
-	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
-	mask += 2;
-	checkMask( *img_dc, mask );
-	
-	// Perform a single grabcut iteration for shrunk image and mask
-	Mat img_shrunk;
-	resize( img, img_shrunk, img.size()/by, 0, 0, 1 );
-	int total_iters = perform_grabcut_on< double, double, 6*CHANNELS >( *img_dc, mask, iterCount/2, epsilon );
-	delete img_cg;
-	delete img_dc;
-	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
-	imwrite("error/mask_ONE_A.png", mask);
-	resize( mask, mask, img.size(), 0, 0, 1);
-	imwrite("error/mask_ONE_B.png", mask);
+	//imwrite("error/mask_ONE_B.png", mask);
 	//imwrite("error/mask_from_step_one.png", mask);
 	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
 	mask += 2;
