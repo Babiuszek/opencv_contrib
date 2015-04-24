@@ -278,17 +278,17 @@ public:
 
 				// Save calculated image mask
 				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : "_HOM"))
-					+ "_so" + to_string((long double)skelOccup/10.0) + ".png";
+					+ "_so" + toString((float)skelOccup/10.0) + ".png";
 				imwrite( output_file, mask );
 				// Update log string
 				if (mode == ONE_STEP)
-					toLog = toLog + to_string((_Longlong)id) + ";" + to_string((long double)skelOccup/10) + ";" + to_string((_Longlong)mode) + ";" +
-						to_string((long double)accuracy) + ";" + to_string((_Longlong)total_iters) + ";" +
-						to_string((long double)total_time) + ";" + to_string((long double)0.0) + ";" + to_string((long double)0.0) + ";" + output_file + "\n";
+					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
+						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
+						toString((float)total_time) + ";" + toString((float)0.0) + ";" + toString((float)0.0) + ";" + output_file + "\n";
 				else
-					toLog = toLog + to_string((_Longlong)id) + ";" + to_string((long double)skelOccup/10) + ";" + to_string((_Longlong)mode) + ";" +
-						to_string((long double)accuracy) + ";" + to_string((_Longlong)total_iters) + ";" +
-						to_string((long double)total_time) + ";" + to_string((long double)it_time1) + ";" + to_string((long double)it_time2) + ";" + output_file + "\n";
+					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
+						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
+						toString((float)total_time) + ";" + toString((float)it_time1) + ";" + toString((float)it_time2) + ";" + output_file + "\n";
 				++id;
 			}
 		}
@@ -369,8 +369,6 @@ int main( int argc, char** argv )
 		id += 10;
 	}
 	threads.join_all();
-
-	PCA pca();
 
     return 0;
 }
