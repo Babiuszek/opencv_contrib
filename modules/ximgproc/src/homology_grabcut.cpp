@@ -38,6 +38,8 @@
 // the use of this software, even if advised of the possibility of such damage.
 //
 //M*/
+#include "opencv2/highgui.hpp"
+#include "opencv2/imgproc.hpp"
 
 #include "precomp.hpp"
 #include "gcgraph.hpp"
@@ -464,8 +466,8 @@ static void initGMMs( const Mat& img, const Mat& mask,
 	if (bgdSamples.empty() || fgdSamples.empty())
 	{
 		std::cout << "bgdSamples=" << bgdSamples.size() << ", fgdSamples=" << fgdSamples.size() << std::endl;
-		//imwrite("error/image.png", img);
-		//imwrite("error/mask.png", mask);
+		imwrite("error/er_image.png", img);
+		imwrite("error/er_mask.png", mask);
 	}
     CV_Assert( !bgdSamples.empty() && !fgdSamples.empty() );
 
@@ -1083,11 +1085,11 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	merge( img_cg_v, CHANNELS, *img_cg );
 	
 	// Shrink the image and mask to get 28 channels
-	//imwrite("error/mask.png", mask);
+	imwrite("error/mask.png", mask);
     Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
-	//imwrite("error/mask_shrunk.png", mask);
+	imwrite("error/mask_shrunk.png", mask);
 	thinning(mask, mask);
-	//imwrite("error/mask_skelled.png", mask);
+	imwrite("error/mask_skelled.png", mask);
 	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
 
 	// Randomizing values of input mask for given threshold
@@ -1099,7 +1101,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	multiply( random_mat, mask, multiplied );
 	if (countNonZero(multiplied) > 0)
 		multiplied.copyTo(mask);
-	//imwrite("error/mask_randomized.png", mask);
+	imwrite("error/mask_randomized.png", mask);
 	// Normalize mask to GC_PR_FGD and GC_PR_BGD
 	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
 	mask += 2;
@@ -1108,14 +1110,63 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	// Perform a single grabcut iteration for shrunk image and mask
 	Mat img_shrunk;
 	resize( img, img_shrunk, img.size()/by, 0, 0, 1 );
-	//int total_iters = perform_grabcut_on< uchar, double, 3 >( img_shrunk, mask, iterCount/2, epsilon );
-	int total_iters = perform_grabcut_on< double, double, 2*CHANNELS >( *img_dc, mask, iterCount/2, epsilon );
+	
+	// Create pca data set
+	Mat pcaset;
+	pcaset.create( img_dc->rows*img_dc->cols, 2*CHANNELS, CV_64FC1 );
+	// Fill it with proper data
+	Point p;
+	for (p.y = 0; p.y < img_dc->rows; p.y++)
+		for (p.x = 0; p.x < img_dc->cols; p.x++)
+		{
+			Vecd_dc values = img_dc->at<Vecd_dc>(p);
+			for (unsigned int i = 0; i < 2*CHANNELS; i++)
+				pcaset.at<double>( p.y*img_dc->cols + p.x, i ) = values[i];
+		}
+	// Create the pca class
+	PCA pca(pcaset, // pass the data
+			Mat(), // we do not have a pre-computed mean vector,
+                   // so let the PCA engine to compute it
+            PCA::DATA_AS_ROW, // indicate that the vectors
+                                // are stored as matrix rows
+                                // (use PCA::DATA_AS_COL if the vectors are
+                                // the matrix columns)
+            3 // specify, how many principal components to retain
+			);
+	// Create and fill the compressed mat
+	Mat compressed;
+	compressed.create( img_dc->rows*img_dc->cols, 3, CV_64FC1 );
+    for( int i = 0; i < pcaset.rows; i++ )
+    {
+        Mat vec = pcaset.row(i), coeffs = compressed.row(i), reconstructed;
+        // compress the vector, the result will be stored
+        // in the i-th row of the output matrix
+        pca.project(vec, coeffs);
+	}
+	// Copy the PCA answer into a proper image matrix
+	Mat img_compressed;
+	img_compressed.create( img_dc->rows, img_dc->cols, CV_64FC3 );
+	for (p.y = 0; p.y < img_dc->rows; p.y++)
+		for (p.x = 0; p.x < img_dc->cols; p.x++)
+		{
+			Vec3d& values = img_compressed.at<Vec3d>(p);
+			for (unsigned int i = 0; i < 3; i++)
+				values[i] = compressed.at<double>( p.y*img_dc->cols + p.x, i );
+		}
 	delete img_cg;
 	delete img_dc;
+	imwrite( "error/img_compressed.png", img_compressed );
+	
+	// Perform grabcut and save it's time for future references
+	clock_t start = clock();
+	int total_iters = perform_grabcut_on< double, double, 3 >( img_compressed, mask, iterCount/2, epsilon );
+	clock_t finish = clock();
+	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+
 	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
-	//imwrite("error/mask_ONE_A.png", mask);
+	imwrite("error/mask_ONE_A.png", mask);
 	resize( mask, mask, img.size(), 0, 0, 1);
-	//imwrite("error/mask_ONE_B.png", mask);
+	imwrite("error/mask_ONE_B.png", mask);
 	//imwrite("error/mask_from_step_one.png", mask);
 	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
 	mask += 2;
@@ -1124,10 +1175,14 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	//out_mask.copyTo( mask );
 	//threshold( mask, mask, 2.5, 1.0, THRESH_BINARY );
 	//mask += 2;
-
+	
+	// Perform grabcut and save it's time for future references
+	start = clock();
 	total_iters += perform_grabcut_on< uchar, double, 3 >( img, mask, iterCount/2, epsilon );
-	mask.copyTo(out_mask);
+	finish = clock();
+	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
+	mask.copyTo(out_mask);
 	return total_iters;
 #endif
 }
