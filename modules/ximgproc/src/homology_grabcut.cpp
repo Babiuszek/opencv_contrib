@@ -1139,61 +1139,62 @@ void make_filter( Mat& f, const int sup, const int sigma, const int tau, const i
 	// All calculations done using parallel execution with C++11 lambda.
 	// Calculate cos(...)*exp(...) part
 	Point p;
-	//for (p.y = 0; p.y < f.rows; p.y++)
-	//	for (p.x = 0; p.x < f.cols; p.x++)
-	//	{
-	//		Vecf_f& value = f.at<Vecf_f>(p);
-	//		value[which] = cos((float)(value[which]*(M_PI*tau/sigma))) * exp(-(value[which]*value[which])/(2*sigma*sigma));
-	//	}
-	f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
-		value[which] = cos((float)(value[which]*(M_PI*tau/sigma))) * exp(-(value[which]*value[which])/(2*sigma*sigma));
-	});
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
+		{
+			Vecf_f& value = f.at<Vecf_f>(p);
+			value[which] = cos((float)(value[which]*(M_PI*tau/sigma))) * exp(-(value[which]*value[which])/(2*sigma*sigma));
+		}
+	//f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
+	//	value[which] = cos((float)(value[which]*(M_PI*tau/sigma))) * exp(-(value[which]*value[which])/(2*sigma*sigma));
+	//});
 
 	// Calculate mean
 	float mean = 0.0;
-	//for (p.y = 0; p.y < f.rows; p.y++)
-	//	for (p.x = 0; p.x < f.cols; p.x++)
-	//	{
-	//		Vecf_f& value = f.at<Vecf_f>(p);
-	//		mean += value[which];
-	//	}
-	f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
-		mean += value[which];
-	});
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
+		{
+			Vecf_f& value = f.at<Vecf_f>(p);
+			mean += value[which];
+		}
+	//f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
+	//	mean += value[which];
+	//});
 	mean /= sup*sup;
 
 	// f=f-mean(f(:));
-	//for (p.y = 0; p.y < f.rows; p.y++)
-	//	for (p.x = 0; p.x < f.cols; p.x++)
-	//	{
-	//		Vecf_f& value = f.at<Vecf_f>(p);
-	//		value[which] -= mean;
-	//	}
-	f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
-		value[which] -= mean;
-	});
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
+		{
+			Vecf_f& value = f.at<Vecf_f>(p);
+			value[which] -= mean;
+		}
+	//f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
+	//	value[which] -= mean;
+	//});
 	
 	// Calculate sum
 	float sum = 0.0;
-	//for (p.y = 0; p.y < f.rows; p.y++)
-	//	for (p.x = 0; p.x < f.cols; p.x++)
-	//	{
-	//		Vecf_f& value = f.at<Vecf_f>(p);
-	//		sum += value[which] > 0 ? value[which] : -value[which];
-	//	}
-	f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
-		sum += value[which] > 0 ? value[which] : -value[which];
-	});
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
+		{
+			Vecf_f& value = f.at<Vecf_f>(p);
+			sum += value[which] > 0 ? value[which] : -value[which];
+		}
+	//f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
+	//	sum += value[which] > 0 ? value[which] : -value[which];
+	//});
 
-	//for (p.y = 0; p.y < f.rows; p.y++)
-	//	for (p.x = 0; p.x < f.cols; p.x++)
-	//	{
-	//		Vecf_f& value = f.at<Vecf_f>(p);
-	//		value[which] /= sum;
-	//	}
-	f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
-		value[which] /= sum;
-	});
+	// f=f/sum(abs(f(:)))
+	for (p.y = 0; p.y < f.rows; p.y++)
+		for (p.x = 0; p.x < f.cols; p.x++)
+		{
+			Vecf_f& value = f.at<Vecf_f>(p);
+			value[which] /= sum;
+		}
+	//f.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
+	//	value[which] /= sum;
+	//});
 }
 
 // Create the Schmid filter bank in accordace to
@@ -1208,19 +1209,19 @@ void create_filters(OutputArray _filters, int size)
 	// Parallel execution using C++11 lambda.
 	int hsup = (size-1)/2;
 	Point p;
-	//for (p.x = 0; p.x < filters.rows; p.x++)
-	//	for (p.y = 0; p.y < filters.cols; p.y++)
-	//	{
-	//		Vecf_f& value = filters.at<Vecf_f>(p);
-	//		value[0] = sqrt( (float)( (-hsup+p.x)*(-hsup+p.x) + (-hsup+p.y)*(-hsup+p.y) ) );
-	//		for (int i = 1; i < 13; i++)
-	//			value[i] = value[0];
-	//	}
-	filters.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
-		value[0] = sqrt( (float)( (-hsup+position[0])*(-hsup+position[0]) + (-hsup+position[1])*(-hsup+position[1]) ) );
-		for (int i = 1; i < 13; i++)
-			value[i] = value[0];
-	});
+	for (p.x = 0; p.x < filters.rows; p.x++)
+		for (p.y = 0; p.y < filters.cols; p.y++)
+		{
+			Vecf_f& value = filters.at<Vecf_f>(p);
+			value[0] = sqrt( (float)( (-hsup+p.x)*(-hsup+p.x) + (-hsup+p.y)*(-hsup+p.y) ) );
+			for (int i = 1; i < 13; i++)
+				value[i] = value[0];
+		}
+	//filters.forEach<Vecf_f>([&](Vecf_f& value, const int position[]) -> void{
+	//	value[0] = sqrt( (float)( (-hsup+position[0])*(-hsup+position[0]) + (-hsup+position[1])*(-hsup+position[1]) ) );
+	//	for (int i = 1; i < 13; i++)
+	//		value[i] = value[0];
+	//});
 
 	// Create all 13 filters
 	make_filter( filters, size, 2, 1, 0 );
