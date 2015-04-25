@@ -1191,7 +1191,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 
 int homology_grabcut(InputArray _img, InputArray _mask,
 		OutputArray _output_mask, double& it_time1, double& it_time2,
-		double SkelOccup=1.0, uint64 seed=0, int IterCount=1, double epsilon=0.001)
+		double SkelOccup, uint64 seed, int IterCount, double epsilon)
 {
 	Mat img = _img.getMat();
 	Mat mask = _mask.getMat();
@@ -1209,7 +1209,7 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 		}
 
 	// Create capd diagram and initialize it with homology
-	ImagePersistentHomology IPH( capd_img );
+	capd::apiRedHom::ImagePersistentHomology IPH( capd_img );
 	std::vector< std::pair< double, double > > diagram = IPH();
 
 	return 0;
