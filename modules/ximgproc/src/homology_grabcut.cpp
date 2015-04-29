@@ -447,23 +447,23 @@ static void initGMMs( const Mat& img, const Mat& mask,
 	GMM< DataType, DataLength >& bgdGMM, GMM< DataType, DataLength >& fgdGMM )
 {
 	// Always 10 iterations, always clustering into 2 centers (logical)
-    const int kMeansItCount = 10;
-    const int kMeansType = KMEANS_PP_CENTERS;
+	const int kMeansItCount = 10;
+	const int kMeansType = KMEANS_PP_CENTERS;
 
 	// Create vectors representing sumples and push our points into proper containers
-    Mat bgdLabels, fgdLabels;
-    std::vector< Vec< float, DataLength > > bgdSamples, fgdSamples;
-    Point p;
-    for( p.y = 0; p.y < img.rows; p.y++ )
-    {
-        for( p.x = 0; p.x < img.cols; p.x++ )
-        {
-            if( mask.at<uchar>(p) == GC_BGD || mask.at<uchar>(p) == GC_PR_BGD )
-                bgdSamples.push_back( (Vec< float, DataLength >)img.at< Vec< ImgType, DataLength > >(p) );
-            else // GC_FGD | GC_PR_FGD
-                fgdSamples.push_back( (Vec< float, DataLength >)img.at< Vec< ImgType, DataLength > >(p) );
-        }
-    }
+	Mat bgdLabels, fgdLabels;
+	std::vector< Vec< float, DataLength > > bgdSamples, fgdSamples;
+	Point p;
+	for( p.y = 0; p.y < img.rows; p.y++ )
+	{
+		for( p.x = 0; p.x < img.cols; p.x++ )
+		{
+		if( mask.at<uchar>(p) == GC_BGD || mask.at<uchar>(p) == GC_PR_BGD )
+			bgdSamples.push_back( (Vec< float, DataLength >)img.at< Vec< ImgType, DataLength > >(p) );
+		else // GC_FGD | GC_PR_FGD
+			fgdSamples.push_back( (Vec< float, DataLength >)img.at< Vec< ImgType, DataLength > >(p) );
+		}
+	}
 	// Standard debug, none should be empty
 	if (bgdSamples.empty() || fgdSamples.empty())
 	{
@@ -471,32 +471,32 @@ static void initGMMs( const Mat& img, const Mat& mask,
 		imwrite("bin/error/er_image.png", img);
 		imwrite("bin/error/er_mask.png", mask);
 	}
-    CV_Assert( !bgdSamples.empty() && !fgdSamples.empty() );
+	CV_Assert( !bgdSamples.empty() && !fgdSamples.empty() );
 
 	// Transform vector of Vec3f into an actual 2D material
 	// Mat(int rows, int cols, int type, void* data, size_t step=AUTO_STEP) <- probably this one
-    Mat _bgdSamples( (int)bgdSamples.size(), DataLength, CV_32FC1, &bgdSamples[0][0] );
+	Mat _bgdSamples( (int)bgdSamples.size(), DataLength, CV_32FC1, &bgdSamples[0][0] );
 	// Run the K-means algorythm
 	// (_data = bgdSamples, K=componentsCount(5), _bestLabels=bgdLabels(output),
 	//	TermCriteria, attempts=0, flags=kMeansType(2), _centers=noArray(default))
-    kmeans( _bgdSamples, GMM< DataType, DataLength >::componentsCount, bgdLabels,
-            TermCriteria( CV_TERMCRIT_ITER, kMeansItCount, 0.0), 0, kMeansType );
+	kmeans( _bgdSamples, GMM< DataType, DataLength >::componentsCount, bgdLabels,
+		TermCriteria( CV_TERMCRIT_ITER, kMeansItCount, 0.0), 0, kMeansType );
 
 	// Do the same for FGD...
 	Mat _fgdSamples( (int)fgdSamples.size(), DataLength, CV_32FC1, &fgdSamples[0][0] );
-    kmeans( _fgdSamples, GMM< DataType, DataLength >::componentsCount, fgdLabels,
-            TermCriteria( CV_TERMCRIT_ITER, kMeansItCount, 0.0), 0, kMeansType );
+	kmeans( _fgdSamples, GMM< DataType, DataLength >::componentsCount, fgdLabels,
+		TermCriteria( CV_TERMCRIT_ITER, kMeansItCount, 0.0), 0, kMeansType );
 
 	// Learn GMMs
-    bgdGMM.initLearning();
-    for( int i = 0; i < (int)bgdSamples.size(); i++ )
-        bgdGMM.addSample( bgdLabels.at<int>(i,0), bgdSamples[i] );
-    bgdGMM.endLearning();
+	bgdGMM.initLearning();
+	for( int i = 0; i < (int)bgdSamples.size(); i++ )
+		bgdGMM.addSample( bgdLabels.at<int>(i,0), bgdSamples[i] );
+	bgdGMM.endLearning();
 
-    fgdGMM.initLearning();
-    for( int i = 0; i < (int)fgdSamples.size(); i++ )
-        fgdGMM.addSample( fgdLabels.at<int>(i,0), fgdSamples[i] );
-    fgdGMM.endLearning();
+	fgdGMM.initLearning();
+	for( int i = 0; i < (int)fgdSamples.size(); i++ )
+		fgdGMM.addSample( fgdLabels.at<int>(i,0), fgdSamples[i] );
+	fgdGMM.endLearning();
 }
 
 template <typename ImgType, typename DataType, int DataLength>
@@ -519,27 +519,27 @@ template <typename ImgType, typename DataType, int DataLength>
 static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs,
 	GMM< DataType, DataLength >& bgdGMM, GMM< DataType, DataLength >& fgdGMM )
 {
-    bgdGMM.initLearning();
-    fgdGMM.initLearning();
-    Point p;
-    for( int ci = 0; ci < GMM< DataType, DataLength >::componentsCount; ci++ )
-    {
-        for( p.y = 0; p.y < img.rows; p.y++ )
-        {
-            for( p.x = 0; p.x < img.cols; p.x++ )
-            {
-                if( compIdxs.at<int>(p) == ci )
-                {
-                    if( mask.at<uchar>(p) == GC_BGD || mask.at<uchar>(p) == GC_PR_BGD )
-                        bgdGMM.addSample( ci, img.at< Vec< ImgType, DataLength > >(p) );
-                    else
-                        fgdGMM.addSample( ci, img.at< Vec< ImgType, DataLength > >(p) );
-                }
-            }
-        }
-    }
-    bgdGMM.endLearning();
-    fgdGMM.endLearning();
+	bgdGMM.initLearning();
+	fgdGMM.initLearning();
+	Point p;
+	for( int ci = 0; ci < GMM< DataType, DataLength >::componentsCount; ci++ )
+	{
+		for( p.y = 0; p.y < img.rows; p.y++ )
+		{
+			for( p.x = 0; p.x < img.cols; p.x++ )
+			{
+				if( compIdxs.at<int>(p) == ci )
+				{
+					if( mask.at<uchar>(p) == GC_BGD || mask.at<uchar>(p) == GC_PR_BGD )
+						bgdGMM.addSample( ci, img.at< Vec< ImgType, DataLength > >(p) );
+					else
+						fgdGMM.addSample( ci, img.at< Vec< ImgType, DataLength > >(p) );
+				}
+			}
+		}
+	}
+	bgdGMM.endLearning();
+	fgdGMM.endLearning();
 }
 
 template <typename ImgType, typename DataType, int DataLength>
@@ -650,9 +650,9 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 	// For each point in ouput image...
 	Point p_i; // Input iterator
 	Point p_o; // Output iterator
-    for( p_o.y = 0; p_o.y < output->rows; p_o.y++ )
-    {
-        for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
+	for( p_o.y = 0; p_o.y < output->rows; p_o.y++ )
+	{
+		for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
 		{
 			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
 			Vecd_dc& values = output->at<Vecd_dc>(p_o);
@@ -693,8 +693,8 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 	out_mask.create( output->rows, output->cols, CV_8UC1 );
 	out_mask.setTo( Scalar(0) );
 	for( p_o.y = 0; p_o.y < out_mask.rows; p_o.y++ )
-    {
-        for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
+	{
+		for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
 		{
 			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
 			uchar& value = out_mask.at<uchar>(p_o);
@@ -718,9 +718,9 @@ Mat* shrink_all_colors( const Mat& input, Mat& mask, const int by )
 	// For each point in ouput image...
 	Point p_i; // Input iterator
 	Point p_o; // Output iterator
-    for( p_o.y = 0; p_o.y < output->rows; p_o.y++ )
-    {
-        for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
+	for( p_o.y = 0; p_o.y < output->rows; p_o.y++ )
+	{
+		for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
 		{
 			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
 			Vec<double, 6*CHANNELS>& values = output->at<Vec<double, 6*CHANNELS> >(p_o);
@@ -761,8 +761,8 @@ Mat* shrink_all_colors( const Mat& input, Mat& mask, const int by )
 	out_mask.create( output->rows, output->cols, CV_8UC1 );
 	out_mask.setTo( Scalar(0) );
 	for( p_o.y = 0; p_o.y < out_mask.rows; p_o.y++ )
-    {
-        for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
+	{
+		for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
 		{
 			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
 			uchar& value = out_mask.at<uchar>(p_o);
@@ -786,9 +786,9 @@ void expandShrunkMat(const Mat& input, Mat& output, const int by)
 	Point p_o; // Output iterator
 	
 	// Go through each point of shrunk, input mask...
-    for( p_i.y = 0; p_i.y < input.rows; p_i.y++ )
+	for( p_i.y = 0; p_i.y < input.rows; p_i.y++ )
 	{
-        for( p_i.x = 0; p_i.x < input.cols; p_i.x++ )
+		for( p_i.x = 0; p_i.x < input.cols; p_i.x++ )
 		{
 			uchar flag = input.at<uchar>(p_i);
 			// And set its value onto every single pixel from a corresponding area on output
@@ -859,12 +859,12 @@ template <typename ImgType, typename DataType, int DataLength>
 int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon)
 {
 	// Shrink our image and mask
-    Mat bgdModel = Mat(); // Our local model
+	Mat bgdModel = Mat(); // Our local model
 	Mat fgdModel = Mat(); // Same as above
 
 	// Building GMMs for local models
 	GMM<DataType, DataLength> bgdGMM( bgdModel ), fgdGMM( fgdModel );
-    Mat compIdxs( img.size(), CV_32SC1 );
+	Mat compIdxs( img.size(), CV_32SC1 );
 	
 	// BREAK: Program breaks on initGMMs if the area is extremely small - K means algorythm breaks
 	initGMMs< ImgType, DataType, DataLength >( img, mask, bgdGMM, fgdGMM );
@@ -876,8 +876,8 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 												// 1 / 2*average distance in colors between neighbours
 
 	// NWeights, the flow capacity of our edges
-    Mat leftW, upleftW, upW, uprightW;
-    calcNWeights< ImgType, DataType, DataLength >( img, leftW, upleftW, upW, uprightW, beta, gamma );
+	Mat leftW, upleftW, upW, uprightW;
+	calcNWeights< ImgType, DataType, DataLength >( img, leftW, upleftW, upW, uprightW, beta, gamma );
 
 	Mat prev(mask.rows, mask.cols, CV_8UC1);
 	int total_iters = 0;
@@ -888,7 +888,7 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 		mask.copyTo(prev);
 		
 		// Simply initialize the graph we will be using throughout the algorythm. It is created empty
-        GCGraph<double> graph;
+		GCGraph<double> graph;
 		
 		// Check the image at mask, and depending if it's FGD or BGD, return the number of component that suits it most.
 		// Answer (component numbers) is stored in compIdxs, it does not store anything else
@@ -896,14 +896,14 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 
 		// This one adds samples to proper GMMs based on best component
 		// Strengthens our predictions?
-        learnGMMs< ImgType, DataType, DataLength >( img, mask, compIdxs, bgdGMM, fgdGMM );
+		learnGMMs< ImgType, DataType, DataLength >( img, mask, compIdxs, bgdGMM, fgdGMM );
 
 		// NOTE: As far as I can tell these two will be primarily worked upon
 		// Construct GraphCut graph, including initializing s and t values for source and sink flows
-        constructGCGraph< ImgType, DataType, DataLength >( img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
+		constructGCGraph< ImgType, DataType, DataLength >( img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
 
 		// Using max flow algorythm calculate segmentation
-        estimateSegmentation( graph, mask );
+		estimateSegmentation( graph, mask );
 
 		// Calculate the amount of pixels in C (pixels which equal 1 on current AND previous mask);
 		C = 0;
@@ -926,10 +926,10 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 	const int by = 10;
 
 	// Standard null checking procedure
-    if( _img.empty() )
-        CV_Error( CV_StsBadArg, "image is empty" );
-    if( _img.type() != CV_8UC3 )
-        CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
+	if( _img.empty() )
+		CV_Error( CV_StsBadArg, "image is empty" );
+	if( _img.type() != CV_8UC3 )
+		CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
 
 	// Load image
 	Mat img;
@@ -981,10 +981,10 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	const int by = 10;
 
 	// Standard null checking procedure
-    if( _img.empty() )
-        CV_Error( CV_StsBadArg, "image is empty" );
-    if( _img.type() != CV_8UC3 )
-        CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
+	if( _img.empty() )
+		CV_Error( CV_StsBadArg, "image is empty" );
+	if( _img.type() != CV_8UC3 )
+		CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
 	
 	Mat img, mask, filters, ground_truth;
 	Mat& out_mask = _out_mask.getMatRef();
@@ -1012,7 +1012,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	
 	// Shrink the image and mask to get 28 channels
 	//imwrite("error/mask.png", mask);
-    Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
+	Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
 	//imwrite("error/mask_shrunk.png", mask);
 	//thinning(mask, mask);
 	//imwrite("error/mask_skelled.png", mask);
@@ -1088,7 +1088,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	
 	// Shrink the image and mask to get 28 channels
 	//imwrite("error/mask.png", mask);
-    Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
+	Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
 	//imwrite("error/mask_shrunk.png", mask);
 	//thinning(mask, mask);
 	//imwrite("error/mask_skelled.png", mask);
@@ -1138,13 +1138,14 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	// Create and fill the compressed mat
 	Mat compressed;
 	compressed.create( img_dc->rows*img_dc->cols, 3, CV_64FC1 );
-    for( int i = 0; i < pcaset.rows; i++ )
-    {
-        Mat vec = pcaset.row(i), coeffs = compressed.row(i), reconstructed;
-        // compress the vector, the result will be stored
-        // in the i-th row of the output matrix
-        pca.project(vec, coeffs);
-	}
+	pca.project( pcaset, compressed );
+	/*for( int i = 0; i < pcaset.rows; i++ )
+	{
+		Mat vec = pcaset.row(i), coeffs = compressed.row(i), reconstructed;
+		// compress the vector, the result will be stored
+		// in the i-th row of the output matrix
+		pca.project(vec, coeffs);
+	}*/
 	// Copy the PCA answer into a proper image matrix
 	Mat img_compressed;
 	img_compressed.create( img_dc->rows, img_dc->cols, CV_64FC3 );
@@ -1211,6 +1212,9 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	// Create capd diagram and initialize it with homology
 	capd::apiRedHom::ImagePersistentHomology IPH( capd_img );
 	std::vector< std::pair< double, double > > diagram = IPH();
+
+	for (unsigned int i = 0; i < diagram.size(); i++)
+		std::cout << "< " << diagram[i].first << ", " << diagram[i].second << ">\n";
 
 	return 0;
 }

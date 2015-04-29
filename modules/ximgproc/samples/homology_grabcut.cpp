@@ -24,7 +24,8 @@ boost::mutex mtx;
 enum MODE {
 	ONE_STEP	= 0,
 	TWO_STEP	= 1,
-	END			= 2
+	HOMOLOGY	= 2,
+	END			= 3
 };
 
 /* Returns a list of files in a directory (except the ones that begin with a dot) */
@@ -216,6 +217,7 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& fi
 	else if (mode == TWO_STEP)
 		total_iters = two_step_grabcut( image, image_mask, filters, image_mask, mask, it_time1, it_time2,
 										skelOccup, rand(), iterCount, epsilon );
+	else total_iters = homology_grabcut( image, image_mask, mask, it_time1, it_time2, skelOccup, rand(), iterCount, epsilon );
 	clock_t finish = clock();
 	total_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
@@ -260,19 +262,19 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 2; skelOccup < 6; ++skelOccup)
+		for(int skelOccup = 1; skelOccup < 6; ++skelOccup)
 		{
 			double accuracy, it_time1, it_time2, total_time;
 			accuracy = total_time = it_time1 = it_time2 = 0.0;
 			Mat bin_mask;
 			bin_mask.create( mask.size(), CV_8UC1 );
 
-			for (int mode = ONE_STEP; mode < END; mode++)
+			for (int mode = ONE_STEP; mode < HOMOLOGY; ++mode)
 			{
 				// Perform iteration
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
 				nextIter(image, image_mask, filters,
-					mask, (double)skelOccup/10, iterCount, epsilon, 1, mode,
+					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
 					toLog, accuracy, total_time, it_time1, it_time2, total_iters);
 				cv::threshold(mask, mask, 2.5, 255.0, THRESH_BINARY);
 
@@ -361,7 +363,8 @@ int main( int argc, char** argv )
 	
 	// Creating work threads
 	int id = 0;
-	
+	//Worker w( log_path, "./bin/images/grabcut_cow.png", "./bin/images/grabcut_cow_mask.png", out_path, id );
+	//w();
 	boost::thread_group threads;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
