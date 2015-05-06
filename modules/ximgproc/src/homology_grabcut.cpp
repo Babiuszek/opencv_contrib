@@ -69,7 +69,7 @@ namespace cv {
 
 /*
 This is implementation of image segmentation algorithm GrabCut described in
-"GrabCut — Interactive Foreground Extraction using Iterated Graph Cuts".
+"GrabCut ? Interactive Foreground Extraction using Iterated Graph Cuts".
 Carsten Rother, Vladimir Kolmogorov, Andrew Blake.
  */
 
