@@ -262,7 +262,7 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 1; skelOccup < 6; ++skelOccup)
+		for(int skelOccup = 2; skelOccup < 6; ++skelOccup)
 		{
 			double accuracy, it_time1, it_time2, total_time;
 			accuracy = total_time = it_time1 = it_time2 = 0.0;
@@ -318,7 +318,7 @@ int main( int argc, char** argv )
 	char* log_path = argc >= 2 ? argv[1] : (char*)"./bin/log.csv";
 	
 	// Load images from given (or default) source folder
-	char* filename = argc >= 3 ? argv[2] : (char*)"./bin/images/sources_enlarged";
+	char* filename = argc >= 3 ? argv[2] : (char*)"./bin/images/sources5x";
 	std::vector<std::string> sources;
 	GetFilesInDirectory(sources, filename);
 	for (std::vector<std::string>::iterator i = sources.begin(); i != sources.end(); i)
@@ -329,7 +329,7 @@ int main( int argc, char** argv )
 	}
 	
 	// Load images from given (or default) mask folder
-	filename = argc >= 4 ? argv[3] : (char*)"./bin/images/ground_truths_enlarged";
+	filename = argc >= 4 ? argv[3] : (char*)"./bin/images/ground_truths5x";
 	std::vector<std::string> masks;
 	GetFilesInDirectory(masks, filename);
 	for (std::vector<std::string>::iterator i = masks.begin(); i != masks.end(); i)
