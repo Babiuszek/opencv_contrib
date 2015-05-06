@@ -240,6 +240,7 @@ public:
 		Mat image_mask = imread( mask, 1 );
 
 		// Transform mask to one channel binary image
+		erode( image_mask, image_mask, Mat(), Point(-1, -1), 15 );
 		cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
 		threshold(image_mask, image_mask, 1.0, 255, THRESH_BINARY);
 	
@@ -262,14 +263,14 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 1; skelOccup < 6; ++skelOccup)
+		for(int skelOccup = 3; skelOccup < 6; ++skelOccup)
 		{
 			double accuracy, it_time1, it_time2, total_time;
 			accuracy = total_time = it_time1 = it_time2 = 0.0;
 			Mat bin_mask;
 			bin_mask.create( mask.size(), CV_8UC1 );
 
-			for (int mode = ONE_STEP; mode < HOMOLOGY; ++mode)
+			for (int mode = ONE_STEP; mode < END; ++mode)
 			{
 				// Perform iteration
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
@@ -318,7 +319,7 @@ int main( int argc, char** argv )
 	char* log_path = argc >= 2 ? argv[1] : (char*)"./bin/log.csv";
 	
 	// Load images from given (or default) source folder
-	char* filename = argc >= 3 ? argv[2] : (char*)"./bin/images/sources_enlarged";
+	char* filename = argc >= 3 ? argv[2] : (char*)"./bin/images/sources5x";
 	std::vector<std::string> sources;
 	GetFilesInDirectory(sources, filename);
 	for (std::vector<std::string>::iterator i = sources.begin(); i != sources.end(); i)
@@ -329,7 +330,7 @@ int main( int argc, char** argv )
 	}
 	
 	// Load images from given (or default) mask folder
-	filename = argc >= 4 ? argv[3] : (char*)"./bin/images/ground_truths_enlarged";
+	filename = argc >= 4 ? argv[3] : (char*)"./bin/images/ground_truths5x";
 	std::vector<std::string> masks;
 	GetFilesInDirectory(masks, filename);
 	for (std::vector<std::string>::iterator i = masks.begin(); i != masks.end(); i)
@@ -361,16 +362,29 @@ int main( int argc, char** argv )
 			}
 	}
 	
+	/*
+	// Enlarging images for tests
+	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
+	{
+		std::cout << sources.at( i->first ) << std::endl;
+		
+		Mat mask = imread( masks.at( i->second ) );
+		resize(mask, mask, mask.size(), 0, 0, 1);
+		imwrite( "./bin/images/test/" + getFileName( masks.at( i->first ) ) +"a.png", mask );
+		erode( mask, mask, Mat(), Point(-1, -1), 6 );
+		imwrite( "./bin/images/test/" + getFileName( masks.at( i->first ) ) +"b.png", mask );
+	}
+	*/
+	
 	// Creating work threads
 	int id = 0;
-	//Worker w( log_path, "./bin/images/grabcut_cow.png", "./bin/images/grabcut_cow_mask.png", out_path, id );
-	//w();
 	boost::thread_group threads;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
+		//w();
 		threads.create_thread( w );
-		id += 10;
+		id += 9;
 	}
 	threads.join_all();
 	
