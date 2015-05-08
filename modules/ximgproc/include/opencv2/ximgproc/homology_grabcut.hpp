@@ -56,7 +56,7 @@ namespace cv
 
 	 */
 	CV_EXPORTS int one_step_grabcut(InputArray img, InputArray mask, InputArray ground_truth,
-		OutputArray output_mask, double SkelOccup=1.0, uint64 seed=0, int IterCount=1, double epsilon=0.001);
+		OutputArray output_mask, int IterCount=1, double epsilon=0.001);
 
 	/** @brief Performs grabcut on shrunk image using given filters and mask.
 	

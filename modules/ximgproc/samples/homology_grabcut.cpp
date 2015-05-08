@@ -240,10 +240,11 @@ public:
 		Mat image_mask = imread( mask, 1 );
 
 		// Transform mask to one channel binary image
-		erode( image_mask, image_mask, Mat(), Point(-1, -1), 15 );
 		cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
 		threshold(image_mask, image_mask, 1.0, 255, THRESH_BINARY);
-	
+		//erode( image_mask, image_mask, Mat(), Point(-1, -1), 1 );
+		threshold(image_mask, image_mask, 1.0, 255, THRESH_BINARY);
+
 		// Initialize values for program and for logging
 		int iterCount = 4;
 		double epsilon = 0.05;
@@ -263,7 +264,7 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 3; skelOccup < 6; ++skelOccup)
+		for(int skelOccup = 5; skelOccup < 6; ++skelOccup)
 		{
 			double accuracy, it_time1, it_time2, total_time;
 			accuracy = total_time = it_time1 = it_time2 = 0.0;
@@ -367,24 +368,34 @@ int main( int argc, char** argv )
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
 		std::cout << sources.at( i->first ) << std::endl;
+
+		Mat source  = imread( sources.at( i->second ) );
+		resize(source, source, source.size()*15, 0, 0, 1);
+		imwrite( "./bin/images/sources15x/" + getFileName( sources.at( i->first ) ) +".png", source );
 		
 		Mat mask = imread( masks.at( i->second ) );
-		resize(mask, mask, mask.size(), 0, 0, 1);
-		imwrite( "./bin/images/test/" + getFileName( masks.at( i->first ) ) +"a.png", mask );
-		erode( mask, mask, Mat(), Point(-1, -1), 6 );
-		imwrite( "./bin/images/test/" + getFileName( masks.at( i->first ) ) +"b.png", mask );
+		resize(mask, mask, mask.size()*15, 0, 0, 1);
+		imwrite( "./bin/images/ground_truths15x/" + getFileName( masks.at( i->first ) ) +".png", mask );
 	}
 	*/
-	
+
 	// Creating work threads
 	int id = 0;
 	boost::thread_group threads;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
-		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
-		//w();
-		threads.create_thread( w );
-		id += 9;
+		for (int j = 0; j < 10; j++)
+		{
+			Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
+			//w();
+			threads.create_thread( w );
+			id += 9;
+			if (++i == pairs.end())
+				break;
+		}
+		threads.join_all();
+		if (i == pairs.end())
+			break;
 	}
 	threads.join_all();
 	

@@ -320,9 +320,9 @@ static void checkMask( const Mat& img, const Mat& mask )
         for( int x = 0; x < mask.cols; x++ )
         {
             uchar val = mask.at<uchar>(y,x);
-            if( val!=GC_PR_BGD && val!=GC_PR_FGD )
+            if( val!=GC_PR_BGD && val!=GC_PR_FGD && val!=GC_BGD && val!=GC_FGD)
                 CV_Error( CV_StsBadArg, "mask element value must be equal"
-                    "GC_PR_BGD or GC_PR_FGD" );
+                    "GC_PR_BGD or GC_PR_FGD or GC_BGD or GC_FGD" );
         }
     }
 }
@@ -711,74 +711,8 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 	// And done!
 	return output;
 }
-Mat* shrink_all_colors( const Mat& input, Mat& mask, const int by )
-{
-	// Create our shrunk Material
-	Mat* output = new Mat( input.rows/by, input.cols/by, CV_64FC(6*CHANNELS) );
 
-	// For each point in ouput image...
-	Point p_i; // Input iterator
-	Point p_o; // Output iterator
-	for( p_o.y = 0; p_o.y < output->rows; p_o.y++ )
-	{
-		for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
-		{
-			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
-			Vec<double, 6*CHANNELS>& values = output->at<Vec<double, 6*CHANNELS> >(p_o);
-			// ...initialize base values as 0
-			for (int i = 0; i < 6*CHANNELS; i++)
-				values[i] = 0.0;
-
-			// And calculate these values using the area from input image. We first calculate the means
-			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
-			{
-				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
-				{
-					Vec<double, 3*CHANNELS> color = input.at<Vec<double, 3*CHANNELS> >(p_i);
-					for (int i = 0; i < 3*CHANNELS; i++)
-						values[i] += color.val[i];
-				}
-			}
-			for (int i = 0; i < 3*CHANNELS; i++)
-				values[i] /= by*by;
-			
-			// Then calculate the standard deviations
-			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
-			{
-				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
-				{
-					Vec<double, 3*CHANNELS> color = input.at<Vec<double, 3*CHANNELS> >(p_i);
-					for (int i = 0; i < 3*CHANNELS; i++)
-						values[3*CHANNELS+i] += pow(values[i] - color.val[i], 2);
-				}
-			}
-			for (int i = 3*CHANNELS; i < 6*CHANNELS; i++)
-				values[i] = sqrt(values[i] / (by*by));
-		}
-	}
-
-	// Now time to shrink the mask
-	Mat out_mask;
-	out_mask.create( output->rows, output->cols, CV_8UC1 );
-	out_mask.setTo( Scalar(0) );
-	for( p_o.y = 0; p_o.y < out_mask.rows; p_o.y++ )
-	{
-		for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
-		{
-			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
-			uchar& value = out_mask.at<uchar>(p_o);
-
-			// And calculate these values using the area from input image. We first calculate the means
-			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
-				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
-					value = max(mask.at<uchar>(p_i), value);
-		}
-	}
-	out_mask.copyTo(mask);
-
-	// And done!
-	return output;
-}
+// Homology version of shrink
 Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
 {
 	// Create our shrunk Material
@@ -802,23 +736,48 @@ Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
 			// And calculate these values using the area from input image. We first load all pixel values into our CAPD img
 			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
 			{
+				std::vector< double > vec;
 				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
-				{
-					std::vector< double > vec;
 					vec.push_back( (double)input.at< uchar >(p_i) );
-					capd_img.push_back( vec );
-				}
+				capd_img.push_back( vec );
 			}
 			// We got our CAPD image, we now have to use homology
 			capd::apiRedHom::ImagePersistentHomology IPH( capd_img );
 			std::vector< std::pair< double, double > > diagram = IPH();
+
+			// Make sure diagram does not have any incorrect values
+			/*for (int i = 0; i < diagram.size(); ++i)
+			{
+				// Check for infinities
+				if (diagram[i].first == INFINITY)
+					diagram[i].first = 255;
+				else if (diagram[i].first == -INFINITY)
+					diagram[i].first = 0;
+				if (diagram[i].second == INFINITY)
+					diagram[i].second = 255;
+				else if (diagram[i].second == -INFINITY)
+					diagram[i].second = 0;
+
+				// Check NaNs
+				if (std::isnan( diagram[i].first ))
+					diagram[i].first = 1.0;
+				if (std::isnan( diagram[i].second ))
+					diagram[i].second = 1.0;
+			}*/
 			
 			// We then create the abs difference vector needed for further calculations
 			std::vector< double > hom_diffs;
 			for (int i = 0; i < diagram.size()-1; ++i)
 				hom_diffs.push_back( abs( diagram[i].second - diagram[i].first ) );
-			// Take care of nan or -+inf in homology diagram
-			hom_diffs.push_back( abs( diagram[diagram.size()-1].first - 255 ) );
+			hom_diffs.push_back( abs( 255 - diagram[diagram.size()-1].first ) );
+
+			for (int i = 0; i < diagram.size(); ++i)
+			{
+				if (!std::isfinite( hom_diffs[i] ))
+					std::cout << "hom_diffs " << i << "/" << hom_diffs.size()-1 << " is INF!\n";
+				if (std::isnan( hom_diffs[i] ))
+					std::cout << "hom_diffs " << i << "/" << hom_diffs.size()-1 << " is NAN!\n";
+			}
 			
 			// We use the abs difference on each of our 10 metrics
 			values[0] = hom_diffs[0]; //min
@@ -843,12 +802,13 @@ Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
 				values[3] += (hom_diffs[i] - values[2])*(hom_diffs[i] - values[2]);
 			values[3] /= hom_diffs.size(); // standard deviation
 			
-			/*for (int i = 0; i < diagram.size(); i++)
+			/*//std::cout << "\n";
+			for (int i = 0; i < diagram.size(); i++)
 				std::cout << "<" << diagram[i].first << ", " << diagram[i].second << ">, ";
-			std::cout << std::endl;
+			std::cout << "\n";
 			for (int i = 0; i < HOM_CHANNELS; i++)
 				std::cout << output->at< Vec<double, HOM_CHANNELS> >(p_o)[i] << " ";
-			std::cout << std::endl;*/
+			std::cout << "\n\n";*/
 		}
 	}
 
@@ -1017,7 +977,7 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 }
 
 int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth,
-		OutputArray _output_mask, double skelOccup, uint64 seed, int iterCount, double epsilon)
+		OutputArray _output_mask, int iterCount, double epsilon)
 {
 	const int by = 10;
 
@@ -1028,36 +988,13 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 		CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
 
 	// Load image
-	Mat img;
-	_img.getMat().copyTo(img);
+	Mat img = _img.getMat();
 	
 	// Load ground truth and output array
-	const Mat& ground_truth = _ground_truth.getMat();
 	Mat& output_mask = _output_mask.getMatRef();
 
-	// Load and prepare mask
-	Mat mask;
-	_mask.getMat().copyTo(mask);
-	resize(mask, mask, mask.size()/by, 0, 0, 1);
-	threshold(mask, mask, 1.0, 255.0, THRESH_BINARY);
-	//thinning(mask, mask);
-	threshold(mask, mask, 1.0, 255.0, THRESH_BINARY);
-
-	// Randomizing values of input mask for given threshold
-	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
-	RNG rng = RNG(seed);
-	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
-	threshold(random_mat, random_mat, 255.0*(1.0 - skelOccup), 1, THRESH_BINARY);
-	Mat multiplied;
-	multiply( random_mat, mask, multiplied );
-	if (countNonZero(multiplied) > 0)
-		multiplied.copyTo(mask);
-	//imwrite("error/mask_randomized.png", mask);
-
-	// Normalize the mask to be either GC_PR_BGD or GC_PR_FGD
-	resize(mask, mask, img.size(), 0, 0, 1);
-	threshold(mask, mask, 1.0, 1.0, THRESH_BINARY);
-	mask += 2;
+	// Load and check the mask
+	Mat mask = _mask.getMat();
 	checkMask( img, mask );
 
 	// Perform grabcut
@@ -1158,13 +1095,6 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	Mat compressed;
 	compressed.create( img_dc->rows*img_dc->cols, 3, CV_64FC1 );
 	pca.project( pcaset, compressed );
-	/*for( int i = 0; i < pcaset.rows; i++ )
-	{
-		Mat vec = pcaset.row(i), coeffs = compressed.row(i), reconstructed;
-		// compress the vector, the result will be stored
-		// in the i-th row of the output matrix
-		pca.project(vec, coeffs);
-	}*/
 	// Copy the PCA answer into a proper image matrix
 	Mat img_compressed;
 	img_compressed.create( img_dc->rows, img_dc->cols, CV_64FC3 );
@@ -1226,13 +1156,14 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 		cvtColor(img, img, COLOR_RGB2GRAY);
 	Mat mask = _mask.getMat();
 	Mat& output_mask = _output_mask.getMatRef();
-	
-	// Shrink the image and mask to get 10 metric channels
-	Mat* hom_img = shrink_homology( img, mask, by ); // Image double channels (shrunk)
-	
+
 	// Transform the mask into GC_PR_FGD and GC_PR_BGD
 	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
 	mask += 2;
+	checkMask( img, mask );
+	
+	// Shrink the image and mask to get 10 metric channels
+	Mat* hom_img = shrink_homology( img, mask, by ); // Image double channels (shrunk)
 	checkMask( *hom_img, mask );
 	
 	// Perform homology grabcut and save its time for future references
