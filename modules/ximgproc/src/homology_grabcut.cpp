@@ -688,26 +688,31 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 				values[i] = sqrt(values[i] / (by*by));
 		}
 	}
-
+	
 	// Now time to shrink the mask
 	Mat out_mask;
 	out_mask.create( output->rows, output->cols, CV_8UC1 );
-	out_mask.setTo( Scalar(0) );
+	out_mask.setTo( Scalar(2) );
 	for( p_o.y = 0; p_o.y < out_mask.rows; p_o.y++ )
 	{
 		for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
 		{
-			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
+			// Take a single point on output mask
 			uchar& value = out_mask.at<uchar>(p_o);
 
-			// And calculate these values using the area from input image. We first calculate the means
+			// And compare it to its by*by factors. GC_FGD > GC_BGD > GC_PR_FGD > GC_PR_BGD
 			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
 				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
-					value = max(mask.at<uchar>(p_i), value);
+					if (mask.at<uchar>(p_i) == GC_FGD)
+						value = GC_FGD;
+					else if (mask.at<uchar>(p_i) == GC_BGD && value != GC_FGD)
+						value = GC_BGD;
+					else if (value != GC_FGD && value != GC_BGD)
+						value = max( mask.at<uchar>(p_i), value );
 		}
 	}
 	out_mask.copyTo(mask);
-
+	
 	// And done!
 	return output;
 }
@@ -744,26 +749,6 @@ Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
 			// We got our CAPD image, we now have to use homology
 			capd::apiRedHom::ImagePersistentHomology IPH( capd_img );
 			std::vector< std::pair< double, double > > diagram = IPH();
-
-			// Make sure diagram does not have any incorrect values
-			/*for (int i = 0; i < diagram.size(); ++i)
-			{
-				// Check for infinities
-				if (diagram[i].first == INFINITY)
-					diagram[i].first = 255;
-				else if (diagram[i].first == -INFINITY)
-					diagram[i].first = 0;
-				if (diagram[i].second == INFINITY)
-					diagram[i].second = 255;
-				else if (diagram[i].second == -INFINITY)
-					diagram[i].second = 0;
-
-				// Check NaNs
-				if (std::isnan( diagram[i].first ))
-					diagram[i].first = 1.0;
-				if (std::isnan( diagram[i].second ))
-					diagram[i].second = 1.0;
-			}*/
 			
 			// We then create the abs difference vector needed for further calculations
 			std::vector< double > hom_diffs;
@@ -815,18 +800,23 @@ Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
 	// Now time to shrink the mask
 	Mat out_mask;
 	out_mask.create( output->rows, output->cols, CV_8UC1 );
-	out_mask.setTo( Scalar(0) );
+	out_mask.setTo( Scalar(2) );
 	for( p_o.y = 0; p_o.y < out_mask.rows; p_o.y++ )
 	{
 		for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
 		{
-			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
+			// Take a single point on output mask
 			uchar& value = out_mask.at<uchar>(p_o);
 
-			// And calculate these values using the area from input image. We first calculate the means
+			// And compare it to its by*by factors. GC_FGD > GC_BGD > GC_PR_FGD > GC_PR_BGD
 			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
 				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
-					value = max(mask.at<uchar>(p_i), value);
+					if (mask.at<uchar>(p_i) == GC_FGD)
+						value = GC_FGD;
+					else if (mask.at<uchar>(p_i) == GC_BGD && value != GC_FGD)
+						value = GC_BGD;
+					else if (value != GC_FGD && value != GC_BGD)
+						value = max( mask.at<uchar>(p_i), value );
 		}
 	}
 	out_mask.copyTo(mask);
@@ -842,15 +832,16 @@ void expandShrunkMat(const Mat& input, Mat& output, const int by)
 	Point p_o; // Output iterator
 	
 	// Go through each point of shrunk, input mask...
-	for( p_i.y = 0; p_i.y < input.rows; p_i.y++ )
+	for( p_i.y = 0; p_i.y < input.rows; ++p_i.y )
 	{
-		for( p_i.x = 0; p_i.x < input.cols; p_i.x++ )
+		for( p_i.x = 0; p_i.x < input.cols; ++p_i.x )
 		{
 			uchar flag = input.at<uchar>(p_i);
 			// And set its value onto every single pixel from a corresponding area on output
-			for ( p_o.y = by*p_i.y; (p_o.y < by*(p_i.y+1)) && (p_o.y < output.rows); p_o.y++)
-				for ( p_o.x = by*p_i.x; (p_o.x < by*(p_i.x+1)) && (p_o.x < output.cols); p_o.x++)
-					output.at<uchar>(p_o) = flag;
+			for ( p_o.y = by*p_i.y; (p_o.y < by*(p_i.y+1)) && (p_o.y < output.rows); ++p_o.y)
+				for ( p_o.x = by*p_i.x; (p_o.x < by*(p_i.x+1)) && (p_o.x < output.cols); ++p_o.x)
+					if (output.at<uchar>(p_o) != GC_FGD && output.at<uchar>(p_o) != GC_BGD)
+						output.at<uchar>(p_o) = flag;
 		}
 	}
 	// End of input for
@@ -885,31 +876,6 @@ Mat* grey_and_expand( const Mat& input )
 	// All done, return the answer
 	return output;
 }
-Mat* expand_all_colors( const Mat& input )
-{
-	// Create output material of input size and n dimensions
-	Mat* output = new Mat(input.rows, input.cols, CV_64FC(3*CHANNELS));
-	
-	// Calculate grayscale values
-	Point p;
-	for (p.y = 0; p.y < input.rows; p.y++)
-	{
-		for (p.x = 0; p.x < input.cols; p.x++)
-		{
-			const Vec3b vi = input.at<Vec3b>(p);
-			Vec<double, 3*CHANNELS>& vo = output->at<Vec<double, 3*CHANNELS> >(p);
-			for (int i = 3; i < 3*CHANNELS; i += 3)
-			{
-				vo[i] = vo[0];
-				vo[i+1] = vo[1];
-				vo[i+2] = vo[2];
-			}
-		}
-	}
-
-	// All done, return the answer
-	return output;
-}
 
 template <typename ImgType, typename DataType, int DataLength>
 int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon)
@@ -937,7 +903,7 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 
 	Mat prev(mask.rows, mask.cols, CV_8UC1);
 	int total_iters = 0;
-	unsigned int C = 0;
+	unsigned int A, B, C;
 	// The main loop
 	do {
 		// Save the previously calculated mask
@@ -962,22 +928,27 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 		estimateSegmentation( graph, mask );
 
 		// Calculate the amount of pixels in C (pixels which equal 1 on current AND previous mask);
-		C = 0;
+		A = B = C = 0;
 		Point p;
 		for (p.y = 0; p.y < mask.rows; ++p.y)
 			for (p.x = 0; p.x < mask.cols; ++p.x)
-				if ((prev.at<uchar>(p) == GC_PR_FGD) && (mask.at<uchar>(p) == GC_PR_FGD))
-					C++;
+				if (prev.at<uchar>(p) == GC_PR_FGD)
+				{
+					++A;
+					if (mask.at<uchar>(p) == GC_PR_FGD)
+						{++C; ++B;}
+				}
+				else if (mask.at<uchar>(p) == GC_PR_FGD)
+					++B;
 		// Update iterCount and total_iters
 		iterCount = max(iterCount-1, -1);
 		total_iters++;
 	}
-	while (iterCount != 0 && ((1.0 - (double)C/(countNonZero(prev)+countNonZero(mask)-C)) > epsilon));
+	while (iterCount != 0 && ((1.0 - (double)C/(A+B-C)) > epsilon));
 	return total_iters;
 }
 
-int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth,
-		OutputArray _output_mask, int iterCount, double epsilon)
+int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask, int iterCount, double epsilon)
 {
 	const int by = 10;
 
@@ -1006,25 +977,26 @@ int one_step_grabcut(InputArray _img, InputArray _mask, InputArray _ground_truth
 	return total_iters;
 }
 
-int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, InputArray _ground_truth, 
-		OutputArray _out_mask, double& it_time1, double& it_time2,
-		double skelOccup, uint64 seed, int iterCount, double epsilon )
+int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, 
+		OutputArray _output_mask, double& it_time1, double& it_time2, std::string& path,
+		int pcaCount, int iterCount, double epsilon )
 {
 	const int by = 10;
-
+	
 	// Standard null checking procedure
 	if( _img.empty() )
 		CV_Error( CV_StsBadArg, "image is empty" );
 	if( _img.type() != CV_8UC3 )
 		CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
 	
-	Mat img, mask, filters, ground_truth;
-	Mat& out_mask = _out_mask.getMatRef();
-	_img.getMat().copyTo(img);
-	_mask.getMat().copyTo(mask);
-	_filters.getMat().copyTo(filters);
-	_ground_truth.getMat().copyTo(ground_truth);
-	
+	// Load the input mats
+	Mat img = _img.getMat();
+	Mat mask = _mask.getMat();
+	Mat filters = _filters.getMat();
+	Mat& output_mask = _output_mask.getMatRef();
+	checkMask( img, mask );
+	mask.copyTo(output_mask); // Required for expandedShrunkMask function between grabcuts
+
 	// Initialization
 	Mat* img_cg = grey_and_expand( img ); //14 CHANNELS Dimensional Grey
 
@@ -1043,46 +1015,40 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	merge( img_cg_v, CHANNELS, *img_cg );
 	
 	// Shrink the image and mask to get 28 channels
-	//imwrite("error/mask.png", mask);
 	Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
-	//imwrite("error/mask_shrunk.png", mask);
-	//thinning(mask, mask);
-	//imwrite("error/mask_skelled.png", mask);
-	//threshold( mask, mask, 0.5, 255.0, THRESH_BINARY );
-
-	// Randomizing values of input mask for given threshold
-	Mat random_mat = Mat( mask.rows, mask.cols, CV_8UC1 );
-	RNG rng = RNG(seed);
-	rng.fill( random_mat, RNG::UNIFORM, 0, 256 );
-	threshold(random_mat, random_mat, 255.0*(1.0 - skelOccup), 1, THRESH_BINARY);
-	Mat multiplied;
-	multiply( random_mat, mask, multiplied );
-	if (countNonZero(multiplied) > 0)
-		multiplied.copyTo(mask);
-	//imwrite("error/mask_randomized.png", mask);
-	// Normalize mask to GC_PR_FGD and GC_PR_BGD
-	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
-	mask += 2;
-	checkMask( *img_dc, mask );
 	
-	// Perform a single grabcut iteration for shrunk image and mask
-	Mat img_shrunk;
-	resize( img, img_shrunk, img.size()/by, 0, 0, 1 );
-	
-	// Create pca data set
-	Mat pcaset;
+	// Create pca data set and prepare RNG generator
+	Mat pcaset, pcainit;
 	pcaset.create( img_dc->rows*img_dc->cols, 2*CHANNELS, CV_64FC1 );
+	pcainit.create( pcaCount, 2*CHANNELS, CV_64FC1 );
+	RNG rng( rand() );
+
 	// Fill it with proper data
 	Point p;
+	int pca_i = 0;
 	for (p.y = 0; p.y < img_dc->rows; p.y++)
 		for (p.x = 0; p.x < img_dc->cols; p.x++)
 		{
+			// Fill in pca set
 			Vecd_dc values = img_dc->at<Vecd_dc>(p);
 			for (unsigned int i = 0; i < 2*CHANNELS; i++)
 				pcaset.at<double>( p.y*img_dc->cols + p.x, i ) = values[i];
+			
+			// Fill in pca init
+			if (pca_i < pcaCount)
+			{
+				unsigned int v = rng.next() % (img_dc->rows*img_dc->cols);
+				if (v < (int)(pcaCount*1.1)) // 110% chance, so the entire set will fill
+				{
+					for (unsigned int i = 0; i < 2*CHANNELS; i++)
+						pcainit.at<double>( pca_i, i ) = values[i];
+					++pca_i;
+				}
+			}
 		}
+
 	// Create the pca class
-	PCA pca(pcaset, // pass the data
+	PCA pca(pcainit, // pass the data
 			Mat(), // we do not have a pre-computed mean vector,
                    // so let the PCA engine to compute it
             PCA::DATA_AS_ROW, // indicate that the vectors
@@ -1091,10 +1057,12 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
                                 // the matrix columns)
             3 // specify, how many principal components to retain
 			);
+
 	// Create and fill the compressed mat
 	Mat compressed;
 	compressed.create( img_dc->rows*img_dc->cols, 3, CV_64FC1 );
 	pca.project( pcaset, compressed );
+	
 	// Copy the PCA answer into a proper image matrix
 	Mat img_compressed;
 	img_compressed.create( img_dc->rows, img_dc->cols, CV_64FC3 );
@@ -1107,7 +1075,9 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 		}
 	delete img_cg;
 	delete img_dc;
-	//imwrite( "error/img_compressed.png", img_compressed );
+	Mat img_ce; //Compressed and Enlarged
+	resize( img_compressed, img_ce, img_compressed.size()*10 );
+	imwrite( path + "c.png", img_ce );
 	
 	// Perform grabcut and save its time for future references
 	clock_t start = clock();
@@ -1115,33 +1085,23 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, In
 	clock_t finish = clock();
 	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
-	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
-	//imwrite("error/mask_ONE_A.png", mask);
-	resize( mask, mask, img.size(), 0, 0, 1);
-	//imwrite("error/mask_ONE_B.png", mask);
-	//imwrite("error/mask_from_step_one.png", mask);
-	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
-	mask += 2;
-	checkMask( img, mask );
-	//shrunk_grabcut( img, mask, filters, out_mask, skelOccup, seed, 1);
-	//out_mask.copyTo( mask );
-	//threshold( mask, mask, 2.5, 1.0, THRESH_BINARY );
-	//mask += 2;
-	
+	// Resize mask back to original size
+	expandShrunkMat( mask, output_mask, by );
+	//imwrite( path + "e.png", out_mask );
+
 	// Perform grabcut and save its time for future references
 	cvtColor(img, img, COLOR_RGB2GRAY);
 	start = clock();
-	total_iters += perform_grabcut_on< uchar, double, 1 >( img, mask, iterCount/2, epsilon );
+	total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount/2, epsilon );
 	finish = clock();
 	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
-
-	mask.copyTo(out_mask);
+	
 	return total_iters;
 }
 
 int homology_grabcut(InputArray _img, InputArray _mask,
 		OutputArray _output_mask, double& it_time1, double& it_time2,
-		double skelOccup, uint64 seed, int iterCount, double epsilon)
+		int iterCount, double epsilon)
 {
 	const int by = 10;
 
@@ -1156,15 +1116,11 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 		cvtColor(img, img, COLOR_RGB2GRAY);
 	Mat mask = _mask.getMat();
 	Mat& output_mask = _output_mask.getMatRef();
-
-	// Transform the mask into GC_PR_FGD and GC_PR_BGD
-	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
-	mask += 2;
 	checkMask( img, mask );
+	mask.copyTo( output_mask );
 	
 	// Shrink the image and mask to get 10 metric channels
 	Mat* hom_img = shrink_homology( img, mask, by ); // Image double channels (shrunk)
-	checkMask( *hom_img, mask );
 	
 	// Perform homology grabcut and save its time for future references
 	clock_t start = clock();
@@ -1174,11 +1130,7 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	delete hom_img;
 	
 	// Resize the mask and perform normal grabcut
-	threshold( mask, mask, 2.5, 255.0, THRESH_BINARY );
-	resize( mask, mask, img.size(), 0, 0, 1);
-	threshold( mask, mask, 0.5, 1.0, THRESH_BINARY );
-	mask += 2;
-	checkMask( img, mask );
+	expandShrunkMat( mask, output_mask, by );
 	
 	// Perform grabcut and save its time for future references
 	start = clock();
@@ -1186,7 +1138,6 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	finish = clock();
 	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
-	mask.copyTo(output_mask);
 	return total_iters;
 }
 

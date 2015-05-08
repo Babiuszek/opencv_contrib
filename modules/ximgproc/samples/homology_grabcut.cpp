@@ -118,8 +118,6 @@ int getID(string& line)
 }
 string toString(float value)
 {
-	if (value == 0.f)
-		return "0.0";
 	// Init
 	string Ans = "";
 	char c;
@@ -208,21 +206,51 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 
 void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& filters,
 	cv::Mat& mask, double skelOccup, int iterCount, double epsilon, int verboseLevel, int mode,
-	string& toLog, double& accuracy, double& total_time, double& it_time1, double& it_time2, int& total_iters)
+	string& toLog, double& accuracy, double& total_time, double& it_time1, double& it_time2, int& total_iters, string test)
 {
 	// Perform grabcut and measure it's time and number of iterations
 	clock_t start = clock();
 	if (mode == ONE_STEP)
-		total_iters = one_step_grabcut( image, image_mask, image_mask, mask, skelOccup, rand(), iterCount, epsilon);
+		total_iters = one_step_grabcut( image, image_mask, mask, iterCount, epsilon);
 	else if (mode == TWO_STEP)
-		total_iters = two_step_grabcut( image, image_mask, filters, image_mask, mask, it_time1, it_time2,
-										skelOccup, rand(), iterCount, epsilon );
-	else total_iters = homology_grabcut( image, image_mask, mask, it_time1, it_time2, skelOccup, rand(), iterCount, epsilon );
+		total_iters = two_step_grabcut( image, image_mask, filters,
+						mask, it_time1, it_time2, test,
+						2048, iterCount, epsilon );
+	else total_iters = homology_grabcut( image, image_mask,
+						mask, it_time1, it_time2,
+						iterCount, epsilon );
 	clock_t finish = clock();
 	total_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
 	// Calculate and save accuracy
 	accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
+}
+
+void swapToInput( Mat& mask )
+{
+	Point p;
+	for( p.y = 0; p.y < mask.rows; p.y++ )
+	{
+		for( p.x = 0; p.x < mask.cols; p.x++ )
+		{
+			if ( (int)mask.at<uchar>(p) == 0)
+				mask.at<uchar>(p) = GC_PR_BGD;
+			else mask.at<uchar>(p) = GC_FGD;
+		}
+	}
+}
+void swapToValues( Mat& mask )
+{
+		Point p;
+	for( p.y = 0; p.y < mask.rows; p.y++ )
+	{
+		for( p.x = 0; p.x < mask.cols; p.x++ )
+		{
+			if ( (int)mask.at<uchar>(p) == GC_PR_BGD)
+				mask.at<uchar>(p) = 0;
+			else mask.at<uchar>(p) = 255;
+		}
+	}
 }
 
 class Worker {
@@ -242,8 +270,8 @@ public:
 		// Transform mask to one channel binary image
 		cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
 		threshold(image_mask, image_mask, 1.0, 255, THRESH_BINARY);
-		//erode( image_mask, image_mask, Mat(), Point(-1, -1), 1 );
-		threshold(image_mask, image_mask, 1.0, 255, THRESH_BINARY);
+		int mask_count = countNonZero( image_mask );
+		swapToInput( image_mask );
 
 		// Initialize values for program and for logging
 		int iterCount = 4;
@@ -264,8 +292,15 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 5; skelOccup < 6; ++skelOccup)
+		for(int skelOccup = 5; skelOccup > 0; --skelOccup)
 		{
+			// Erode the mask to achieve % of original mask pixels
+			swapToValues( image_mask );
+			while ((double)countNonZero( image_mask )/mask_count > (double)skelOccup/10)
+				erode( image_mask, image_mask, Mat(), Point(-1, -1), 1 );
+			//std::cout << "SkelOccup: " << toString( (double)countNonZero( image_mask )/mask_count ) << "\n";
+			swapToInput( image_mask );
+
 			double accuracy, it_time1, it_time2, total_time;
 			accuracy = total_time = it_time1 = it_time2 = 0.0;
 			Mat bin_mask;
@@ -277,8 +312,9 @@ public:
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
 				nextIter(image, image_mask, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
-					toLog, accuracy, total_time, it_time1, it_time2, total_iters);
-				cv::threshold(mask, mask, 2.5, 255.0, THRESH_BINARY);
+					toLog, accuracy, total_time, it_time1, it_time2, total_iters,
+					out_path + "/" + original + "_TWO_so" + toString((float)skelOccup/10.0));
+				swapToValues( mask );
 
 				// Save calculated image mask
 				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : "_HOM"))
@@ -288,7 +324,7 @@ public:
 				if (mode == ONE_STEP)
 					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
 						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-						toString((float)total_time) + ";" + toString((float)0.0) + ";" + toString((float)0.0) + ";" + output_file + "\n";
+						toString((float)total_time) + ";0.0;0.0;" + output_file + "\n";
 				else
 					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
 						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
@@ -389,7 +425,7 @@ int main( int argc, char** argv )
 			Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
 			//w();
 			threads.create_thread( w );
-			id += 9;
+			id += 15;
 			if (++i == pairs.end())
 				break;
 		}

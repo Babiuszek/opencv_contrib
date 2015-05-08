@@ -55,8 +55,8 @@ namespace cv
 	given certain epsilon or maximum number of iterations).
 
 	 */
-	CV_EXPORTS int one_step_grabcut(InputArray img, InputArray mask, InputArray ground_truth,
-		OutputArray output_mask, int IterCount=1, double epsilon=0.001);
+	CV_EXPORTS int one_step_grabcut(InputArray img, InputArray mask, OutputArray output_mask,
+		int IterCount=1, double epsilon=0.001);
 
 	/** @brief Performs grabcut on shrunk image using given filters and mask.
 	
@@ -93,9 +93,9 @@ namespace cv
 	@param epsilon The threshold value for changes. If accuracy difference between current and
 	previous answer is lower than epsilon the algorythm ends.
 	 */
-	CV_EXPORTS int two_step_grabcut(InputArray img, InputArray mask, InputArray filters, InputArray ground_truth,
-		OutputArray output_mask, double& it_time1, double& it_time2,
-		double SkelOccup=1.0, uint64 seed=0, int IterCount=1, double epsilon=0.001);
+	CV_EXPORTS int two_step_grabcut(InputArray img, InputArray mask, InputArray filters,
+		OutputArray output_mask, double& it_time1, double& it_time2, std::string& path,
+		int pcaCount=2048, int IterCount=1, double epsilon=0.001);
 
 	/** @brief Performs homology grabcut on given image
 
@@ -103,7 +103,7 @@ namespace cv
 
 	CV_EXPORTS int homology_grabcut(InputArray img, InputArray mask,
 		OutputArray output_mask, double& it_time1, double& it_time2,
-		double SkelOccup=1.0, uint64 seed=0, int IterCount=1, double epsilon=0.001);
+		int IterCount=1, double epsilon=0.001);
 	
 	/** @brief Constructs 13 Schmid filters storing them in CV_32FC(13) Mat bank
 	
