@@ -1081,7 +1081,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	
 	// Perform grabcut and save its time for future references
 	clock_t start = clock();
-	int total_iters = perform_grabcut_on< double, double, 3 >( img_compressed, mask, iterCount/2, epsilon );
+	int total_iters = perform_grabcut_on< double, double, 3 >( img_compressed, mask, iterCount, epsilon );
 	clock_t finish = clock();
 	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
@@ -1092,7 +1092,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	// Perform grabcut and save its time for future references
 	cvtColor(img, img, COLOR_RGB2GRAY);
 	start = clock();
-	total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount/2, epsilon );
+	total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount, epsilon );
 	finish = clock();
 	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 	
@@ -1124,7 +1124,7 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	
 	// Perform homology grabcut and save its time for future references
 	clock_t start = clock();
-	int total_iters = perform_grabcut_on< double, double, HOM_CHANNELS>( *hom_img, mask, iterCount/2, epsilon );
+	int total_iters = perform_grabcut_on< double, double, HOM_CHANNELS>( *hom_img, mask, iterCount, epsilon );
 	clock_t finish = clock();
 	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 	delete hom_img;
@@ -1134,9 +1134,163 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	
 	// Perform grabcut and save its time for future references
 	start = clock();
-	total_iters += perform_grabcut_on< uchar, double, 1 >( img, mask, iterCount/2, epsilon );
+	total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount, epsilon );
 	finish = clock();
 	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+
+	return total_iters;
+}
+
+int three_step_grabcut(InputArray _img, InputArray _mask, InputArray _filters,
+		OutputArray _output_mask, double& it_time1, double& it_time2,
+		int pcaCount, int iterCount, double epsilon)
+{
+	const int by = 10;
+
+	// Standard null checking procedure
+	if( _img.empty() )
+		CV_Error( CV_StsBadArg, "image is empty" );
+	if( _img.type() != CV_8UC3 )
+		CV_Error( CV_StsBadArg, "image must have CV_8UC3 type" );
+
+	// Load the input mats
+	Mat img = _img.getMat();
+	Mat mask_two_step = _mask.getMat();
+	Mat mask_hom_step = _mask.getMat();
+	Mat filters = _filters.getMat();
+	Mat& output_mask = _output_mask.getMatRef();
+	checkMask( img, mask_two_step );
+	Mat enlarged;
+	mask_two_step.copyTo( enlarged );
+	mask_two_step.copyTo( output_mask );
+
+
+	// ======================== [ TWO STEP ] =============================
+	clock_t start = clock();
+	// Initialization
+	Mat* img_cg = grey_and_expand( img ); //14 CHANNELS Dimensional Grey
+
+	// Applying filters
+	Mat img_cg_v[CHANNELS]; // Vector of values for filter2D usage
+	Mat filters_v[FILTERS]; // Vector of filters for filter2D usage
+	split( *img_cg, img_cg_v );
+	split( filters, filters_v );
+	for (int i = 0; i < FILTERS; i++)
+	{
+		// Apply the filter. Default values are:
+		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
+		filter2D( img_cg_v[i+1], img_cg_v[i+1], CV_64F, filters_v[i] );
+	}
+	// Build back our final solution
+	merge( img_cg_v, CHANNELS, *img_cg );
+	
+	// Shrink the image and mask to get 28 channels
+	Mat* img_dc = shrink( *img_cg, mask_two_step, by ); // Image double channels (shrunk)
+	
+	// Create pca data set and prepare RNG generator
+	Mat pcaset, pcainit;
+	pcaset.create( img_dc->rows*img_dc->cols, 2*CHANNELS, CV_64FC1 );
+	pcainit.create( pcaCount, 2*CHANNELS, CV_64FC1 );
+	RNG rng( rand() );
+
+	// Fill it with proper data
+	Point p;
+	int pca_i = 0;
+	for (p.y = 0; p.y < img_dc->rows; p.y++)
+		for (p.x = 0; p.x < img_dc->cols; p.x++)
+		{
+			// Fill in pca set
+			Vecd_dc values = img_dc->at<Vecd_dc>(p);
+			for (unsigned int i = 0; i < 2*CHANNELS; i++)
+				pcaset.at<double>( p.y*img_dc->cols + p.x, i ) = values[i];
+			
+			// Fill in pca init
+			if (pca_i < pcaCount)
+			{
+				unsigned int v = rng.next() % (img_dc->rows*img_dc->cols);
+				if (v < (int)(pcaCount*1.1)) // 110% chance, so the entire set will fill
+				{
+					for (unsigned int i = 0; i < 2*CHANNELS; i++)
+						pcainit.at<double>( pca_i, i ) = values[i];
+					++pca_i;
+				}
+			}
+		}
+
+	// Create the pca class
+	PCA pca(pcainit, // pass the data
+			Mat(), // we do not have a pre-computed mean vector,
+                   // so let the PCA engine to compute it
+            PCA::DATA_AS_ROW, // indicate that the vectors
+                                // are stored as matrix rows
+                                // (use PCA::DATA_AS_COL if the vectors are
+                                // the matrix columns)
+            3 // specify, how many principal components to retain
+			);
+
+	// Create and fill the compressed mat
+	Mat compressed;
+	compressed.create( img_dc->rows*img_dc->cols, 3, CV_64FC1 );
+	pca.project( pcaset, compressed );
+	
+	// Copy the PCA answer into a proper image matrix
+	Mat img_compressed;
+	img_compressed.create( img_dc->rows, img_dc->cols, CV_64FC3 );
+	for (p.y = 0; p.y < img_dc->rows; p.y++)
+		for (p.x = 0; p.x < img_dc->cols; p.x++)
+		{
+			Vec3d& values = img_compressed.at<Vec3d>(p);
+			for (unsigned int i = 0; i < 3; i++)
+				values[i] = compressed.at<double>( p.y*img_dc->cols + p.x, i );
+		}
+	delete img_cg;
+	delete img_dc;
+	Mat img_ce; //Compressed and Enlarged
+	resize( img_compressed, img_ce, img_compressed.size()*10 );
+	
+	// Perform grabcut and save its time for future references
+	int total_iters = perform_grabcut_on< double, double, 3 >( img_compressed, mask_two_step, iterCount, epsilon );
+	clock_t finish = clock();
+	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+
+
+	// ======================== [ HOMOLOGY ] =============================
+	if (1 < img.channels())
+		cvtColor(img, img, COLOR_RGB2GRAY);
+	
+	// Measure time it takes to perform full homology grabcut
+	start = clock();
+
+	// Shrink the image and mask to get 10 metric channels
+	Mat* hom_img = shrink_homology( img, mask_hom_step, by ); // Image double channels (shrunk)
+	
+	// Perform homology grabcut
+	total_iters += perform_grabcut_on< double, double, HOM_CHANNELS>( *hom_img, mask_hom_step, iterCount, epsilon );
+	finish = clock();
+	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	delete hom_img;
+
+
+	// ======================== [ TWO STEP ] =============================
+	// Resize mask back to original size
+	expandShrunkMat( mask_two_step, enlarged, by );
+
+	// Resize the mask and perform normal grabcut
+	expandShrunkMat( mask_hom_step, output_mask, by );
+	
+	// Merge answers from two-step and homology
+	for (p.y = 0; p.y < output_mask.rows; p.y++)
+		for (p.x = 0; p.x < output_mask.cols; p.x++)
+		{
+			uchar& output_val = output_mask.at<uchar>(p);
+			uchar enlarged_val = (uchar)enlarged.at<uchar>(p);
+
+			if (output_val != GC_FGD && output_val != GC_BGD)
+				output_val = max(output_val, enlarged_val);
+		}
+	
+	// Perform standard grabcut
+	total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount, epsilon );
 
 	return total_iters;
 }

@@ -25,7 +25,8 @@ enum MODE {
 	ONE_STEP	= 0,
 	TWO_STEP	= 1,
 	HOMOLOGY	= 2,
-	END			= 3
+	THREE_STEP	= 3,
+	END			= 4
 };
 
 /* Returns a list of files in a directory (except the ones that begin with a dot) */
@@ -210,15 +211,21 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& fi
 {
 	// Perform grabcut and measure it's time and number of iterations
 	clock_t start = clock();
+
 	if (mode == ONE_STEP)
 		total_iters = one_step_grabcut( image, image_mask, mask, iterCount, epsilon);
 	else if (mode == TWO_STEP)
 		total_iters = two_step_grabcut( image, image_mask, filters,
 						mask, it_time1, it_time2, test,
-						2048, iterCount, epsilon );
-	else total_iters = homology_grabcut( image, image_mask,
+						2048, iterCount/2, epsilon );
+	else if (mode == HOMOLOGY)
+		total_iters = homology_grabcut( image, image_mask,
 						mask, it_time1, it_time2,
-						iterCount, epsilon );
+						iterCount/2, epsilon );
+	else total_iters = three_step_grabcut( image, image_mask, filters,
+						mask, it_time1, it_time2,
+						2048, iterCount/2, epsilon );
+
 	clock_t finish = clock();
 	total_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
@@ -306,7 +313,7 @@ public:
 			Mat bin_mask;
 			bin_mask.create( mask.size(), CV_8UC1 );
 
-			for (int mode = ONE_STEP; mode < END; ++mode)
+			for (int mode = ONE_STEP; mode < HOMOLOGY; ++mode)
 			{
 				// Perform iteration
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
@@ -317,7 +324,7 @@ public:
 				swapToValues( mask );
 
 				// Save calculated image mask
-				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : "_HOM"))
+				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : (mode == HOMOLOGY ? "_HOM" : "_THREE")))
 					+ "_so" + toString((float)skelOccup/10.0) + ".png";
 				imwrite( output_file, mask );
 				// Update log string
@@ -356,7 +363,7 @@ int main( int argc, char** argv )
 	char* log_path = argc >= 2 ? argv[1] : (char*)"./bin/log.csv";
 	
 	// Load images from given (or default) source folder
-	char* filename = argc >= 3 ? argv[2] : (char*)"./bin/images/sources5x";
+	char* filename = argc >= 3 ? argv[2] : (char*)"./bin/images/sources";
 	std::vector<std::string> sources;
 	GetFilesInDirectory(sources, filename);
 	for (std::vector<std::string>::iterator i = sources.begin(); i != sources.end(); i)
@@ -367,7 +374,7 @@ int main( int argc, char** argv )
 	}
 	
 	// Load images from given (or default) mask folder
-	filename = argc >= 4 ? argv[3] : (char*)"./bin/images/ground_truths5x";
+	filename = argc >= 4 ? argv[3] : (char*)"./bin/images/ground_truths";
 	std::vector<std::string> masks;
 	GetFilesInDirectory(masks, filename);
 	for (std::vector<std::string>::iterator i = masks.begin(); i != masks.end(); i)
@@ -434,6 +441,6 @@ int main( int argc, char** argv )
 			break;
 	}
 	threads.join_all();
-	
+
 	return 0;
 }
