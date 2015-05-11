@@ -245,15 +245,19 @@ void swapToInput( Mat& mask )
 			else mask.at<uchar>(p) = GC_FGD;
 		}
 	}
+	mask.at<uchar>(0, 0) = GC_BGD;
+	mask.at<uchar>(0, mask.rows-1) = GC_BGD;
+	mask.at<uchar>(mask.cols-1, 0) = GC_BGD;
+	mask.at<uchar>(mask.cols-1, mask.rows-1) = GC_BGD;
 }
 void swapToValues( Mat& mask )
 {
-		Point p;
+	Point p;
 	for( p.y = 0; p.y < mask.rows; p.y++ )
 	{
 		for( p.x = 0; p.x < mask.cols; p.x++ )
 		{
-			if ( (int)mask.at<uchar>(p) == GC_PR_BGD)
+			if ( (int)mask.at<uchar>(p) == GC_PR_BGD || (int)mask.at<uchar>(p) == GC_BGD )
 				mask.at<uchar>(p) = 0;
 			else mask.at<uchar>(p) = 255;
 		}
@@ -273,6 +277,15 @@ public:
 		// Load the images
 		Mat image = imread( source, 1 );
 		Mat image_mask = imread( mask, 1 );
+
+		// Save image data and enlarge image/mask if needed be
+		int scale = 5;
+		std::string original_size = toString(image.rows) + "x" + toString(image.cols);
+		if (scale > 1)
+		{
+			resize(image, image, image.size()*scale);
+			resize(image_mask, image_mask, image_mask.size()*scale, 0, 0, 1);
+		}
 
 		// Transform mask to one channel binary image
 		cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
@@ -331,11 +344,13 @@ public:
 				if (mode == ONE_STEP)
 					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
 						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-						toString((float)total_time) + ";0.0;0.0;" + output_file + "\n";
+						toString((float)total_time) + ";0.0;0.0;" +
+						getFileName(source) + ";" + original_size + ";" + toString(scale) + ";" + output_file + "\n";
 				else
 					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
 						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-						toString((float)total_time) + ";" + toString((float)it_time1) + ";" + toString((float)it_time2) + ";" + output_file + "\n";
+						toString((float)total_time) + ";" + toString((float)it_time1) + ";" + toString((float)it_time2) + ";" +
+						getFileName(source) + ";" + original_size + ";" + toString(scale) + ";" + output_file + "\n";
 				++id;
 			}
 		}
