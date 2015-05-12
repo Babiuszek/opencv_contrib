@@ -218,13 +218,6 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& fi
 		total_iters = two_step_grabcut( image, image_mask, filters,
 						mask, it_time1, it_time2, test,
 						2048, iterCount/2, epsilon );
-	else if (mode == HOMOLOGY)
-		total_iters = homology_grabcut( image, image_mask,
-						mask, it_time1, it_time2,
-						iterCount/2, epsilon );
-	else total_iters = three_step_grabcut( image, image_mask, filters,
-						mask, it_time1, it_time2,
-						2048, iterCount/2, epsilon );
 
 	clock_t finish = clock();
 	total_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
@@ -245,10 +238,14 @@ void swapToInput( Mat& mask )
 			else mask.at<uchar>(p) = GC_FGD;
 		}
 	}
-	mask.at<uchar>(0, 0) = GC_BGD;
-	mask.at<uchar>(0, mask.rows-1) = GC_BGD;
-	mask.at<uchar>(mask.cols-1, 0) = GC_BGD;
-	mask.at<uchar>(mask.cols-1, mask.rows-1) = GC_BGD;
+	if (mask.at<uchar>(0, 0) == GC_PR_BGD)
+		mask.at<uchar>(0, 0) = GC_BGD;
+	if (mask.at<uchar>(mask.rows-1, 0) == GC_PR_BGD)
+		mask.at<uchar>(mask.rows-1, 0) = GC_BGD;
+	if (mask.at<uchar>(0, mask.cols-1) == GC_PR_BGD)
+		mask.at<uchar>(0, mask.cols-1) = GC_BGD;
+	if (mask.at<uchar>(mask.rows-1, mask.cols-1) == GC_PR_BGD)
+		mask.at<uchar>(mask.rows-1, mask.cols-1) = GC_BGD;
 }
 void swapToValues( Mat& mask )
 {
@@ -260,6 +257,24 @@ void swapToValues( Mat& mask )
 			if ( (int)mask.at<uchar>(p) == GC_PR_BGD || (int)mask.at<uchar>(p) == GC_BGD )
 				mask.at<uchar>(p) = 0;
 			else mask.at<uchar>(p) = 255;
+		}
+	}
+}
+
+// Read mask from Weizmann's database
+void readMask( Mat& mask )
+{
+	Point p;
+	for( p.y = 0; p.y < mask.rows; p.y++ )
+	{
+		for( p.x = 0; p.x < mask.cols; p.x++ )
+		{
+			Vec3b& v = mask.at<Vec3b>(p);
+			if (v[0] == 255 && v[1] == 0 && v[2] == 0) // Red, is mask
+				v[0] = v[1] = v[2] = 255;
+			else if (v[0] == 0 && v[1] == 0 && v[2] == 255) // Blue, is mask
+				v[0] = v[1] = v[2] = 255;
+			else v[0] = v[1] = v[2] = 0;
 		}
 	}
 }
@@ -277,6 +292,7 @@ public:
 		// Load the images
 		Mat image = imread( source, 1 );
 		Mat image_mask = imread( mask, 1 );
+		readMask( image_mask );
 
 		// Save image data and enlarge image/mask if needed be
 		int scale = 5;
@@ -333,7 +349,7 @@ public:
 				nextIter(image, image_mask, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
 					toLog, accuracy, total_time, it_time1, it_time2, total_iters,
-					out_path + "/" + original + "_TWO_so" + toString((float)skelOccup/10.0));
+					out_path + "_t/" + original + "_TWO_so" + toString((float)skelOccup/10.0));
 				swapToValues( mask );
 
 				// Save calculated image mask
@@ -420,22 +436,6 @@ int main( int argc, char** argv )
 				return 2;
 			}
 	}
-	
-	/*
-	// Enlarging images for tests
-	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
-	{
-		std::cout << sources.at( i->first ) << std::endl;
-
-		Mat source  = imread( sources.at( i->second ) );
-		resize(source, source, source.size()*15, 0, 0, 1);
-		imwrite( "./bin/images/sources15x/" + getFileName( sources.at( i->first ) ) +".png", source );
-		
-		Mat mask = imread( masks.at( i->second ) );
-		resize(mask, mask, mask.size()*15, 0, 0, 1);
-		imwrite( "./bin/images/ground_truths15x/" + getFileName( masks.at( i->first ) ) +".png", mask );
-	}
-	*/
 
 	// Creating work threads
 	int id = 0;
@@ -445,8 +445,8 @@ int main( int argc, char** argv )
 		for (int j = 0; j < 10; j++)
 		{
 			Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
-			//w();
-			threads.create_thread( w );
+			w();
+			//threads.create_thread( w );
 			id += 15;
 			if (++i == pairs.end())
 				break;

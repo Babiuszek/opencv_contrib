@@ -55,7 +55,7 @@ namespace cv
 	given certain epsilon or maximum number of iterations).
 
 	 */
-	CV_EXPORTS int one_step_grabcut(InputArray img, InputArray mask, OutputArray output_mask,
+	CV_EXPORTS_W int one_step_grabcut(InputArray img, InputArray mask, OutputArray output_mask,
 		int iterCount=1, double epsilon=0.001);
 
 	/** @brief Performs grabcut on shrunk image using given filters and mask.
@@ -93,20 +93,8 @@ namespace cv
 	@param epsilon The threshold value for changes. If accuracy difference between current and
 	previous answer is lower than epsilon the algorythm ends.
 	 */
-	CV_EXPORTS int two_step_grabcut(InputArray img, InputArray mask, InputArray filters,
+	CV_EXPORTS_W int two_step_grabcut(InputArray img, InputArray mask, InputArray filters,
 		OutputArray output_mask, double& it_time1, double& it_time2, std::string& path,
-		int pcaCount=2048, int iterCount=1, double epsilon=0.001);
-
-	/** @brief Performs homology grabcut on given image
-
-	 */
-
-	CV_EXPORTS int homology_grabcut(InputArray img, InputArray mask,
-		OutputArray output_mask, double& it_time1, double& it_time2,
-		int iterCount=1, double epsilon=0.001);
-
-	CV_EXPORTS int three_step_grabcut(InputArray img, InputArray mask, InputArray filters,
-		OutputArray output_mask, double& it_time1, double& it_time2,
 		int pcaCount=2048, int iterCount=1, double epsilon=0.001);
 	
 	/** @brief Constructs 13 Schmid filters storing them in CV_32FC(13) Mat bank
@@ -119,20 +107,6 @@ namespace cv
 	@param size of our output, square matrix. Default is 49, as given by original matlab code.
 	 */
 	CV_EXPORTS_W void create_filters(OutputArray filters, int size=49);
-
-	/** @brief Read an image given by input string, perform thinning on it and save it
-
-	The function reads the image given by first parameter and saves it in path given by
-	the second parameter. Note that thinning may take a while.
-
-	@param img image for skeletization, is assumed to be in RGB format.
-
-	@param output is the path of output image. Thinned version of input.
-	 */
-	CV_EXPORTS_W void skel(InputArray img, OutputArray mask);
-	
-	CV_EXPORTS_W void gc_test(InputOutputArray img, InputOutputArray mask);
-	CV_EXPORTS_W void gc_test2(InputOutputArray img, InputOutputArray mask);
 }
 #endif
 #endif
