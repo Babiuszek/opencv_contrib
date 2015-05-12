@@ -8,6 +8,7 @@
 #include <iostream>
 #include <fstream>
 #include <boost/thread.hpp>
+#include <boost/interprocess/sync/interprocess_semaphore.hpp>
 #ifdef _WINDOWS
 	#include <Windows.h>
 #else
@@ -20,6 +21,7 @@ using namespace std;
 using namespace cv;
 
 boost::mutex mtx;
+boost::interprocess::interprocess_semaphore sem(10);
 
 enum MODE {
 	ONE_STEP	= 0,
@@ -378,6 +380,7 @@ public:
 				logFile.write(&toLog.at(i), 1);
 			logFile.close();
 		}
+		sem.post();
 	}
 
 private:
@@ -442,18 +445,10 @@ int main( int argc, char** argv )
 	boost::thread_group threads;
 	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
 	{
-		for (int j = 0; j < 10; j++)
-		{
-			Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
-			w();
-			//threads.create_thread( w );
-			id += 15;
-			if (++i == pairs.end())
-				break;
-		}
-		threads.join_all();
-		if (i == pairs.end())
-			break;
+		sem.wait();
+		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
+		threads.create_thread( w );
+		id += 15;
 	}
 	threads.join_all();
 
