@@ -58,7 +58,7 @@ using namespace ml;
 namespace cv {
 
 #define FILTERS 13
-#define CHANNELS 14
+#define CHANNELS 17
 #define HOM_CHANNELS 10
 
 #define Vecf_f	Vec<float, FILTERS>
@@ -756,14 +756,16 @@ Mat* grey_and_expand( const Mat& input )
 			const Vec3b vi = input.at<Vec3b>(p);
 			Vecd_c& vo = output->at<Vecd_c>(p);
 			
+			for (int i = 0; i < 3; i++)
+				vo[i] = vi[i];
 			// 1) (0.2126*R + 0.7152*G + 0.0722*B) <- Relative luminance according to wiki
 			// 2) (0.299*R + 0.587*G + 0.114*B) <- Suggested by W3C Working Draft
 			// 3) sqrt( 0.299*R^2 + 0.587*G^2 + 0.114*B^2 ) <- Photoshop does something close to this
 			// Calculate grayscale value, here we are using 3rd formula
-			vo[0] = sqrt( 0.299*vi[0]*vi[0] + 0.587*vi[1]*vi[1] + 0.114*vi[2]*vi[2] );
+			vo[3] = sqrt( 0.299*vi[0]*vi[0] + 0.587*vi[1]*vi[1] + 0.114*vi[2]*vi[2] );
 			// Set all other values to the calculated value
-			for (int i = 1; i < CHANNELS; i++)
-				vo[i] = vo[0];
+			for (int i = 4; i < CHANNELS; i++)
+				vo[i] = vo[3];
 		}
 	}
 
@@ -864,8 +866,8 @@ int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask
 	checkMask( img, mask );
 
 	// Perform grabcut
-	cvtColor( img, img, COLOR_RGB2GRAY );
-	int total_iters = perform_grabcut_on<uchar, double, 1>(img, mask, iterCount, epsilon);
+	//cvtColor( img, img, COLOR_RGB2GRAY );
+	int total_iters = perform_grabcut_on<uchar, double, 3>(img, mask, iterCount, epsilon);
 
 	// Save and return output
 	mask.copyTo(output_mask);
@@ -987,9 +989,10 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	//imwrite( path + "e.png", out_mask );
 
 	// Perform grabcut and save its time for future references
-	cvtColor(img, img, COLOR_RGB2GRAY);
+	//cvtColor(img, img, COLOR_RGB2GRAY);
 	start = clock();
-	total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount, epsilon );
+	//total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount, epsilon );
+	total_iters += perform_grabcut_on<uchar, double, 3>(img, output_mask, iterCount, epsilon);
 	finish = clock();
 	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 	

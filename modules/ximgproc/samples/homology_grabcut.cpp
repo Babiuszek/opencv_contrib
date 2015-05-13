@@ -241,7 +241,8 @@ double calculateFMeasure(const cv::Mat& output, const cv::Mat& key, int verboseL
 		}
 	double precision = (double)(tp)/(tp+fp);
 	double recall = (double)(tp)/(tp+fn);
-	return 2.0/(1.0/precision + 1.0/recall);
+	double answer = 2.0/(1.0/precision + 1.0/recall);
+	return answer;
 }
 
 void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& filters,
@@ -335,7 +336,7 @@ public:
 		//readMask( image_mask );
 
 		// Save image data and enlarge image/mask if needed be
-		int scale = 1;
+		int scale = 5;
 		std::string original_size = toString(image.rows) + "x" + toString(image.cols);
 		if (scale > 1)
 		{
@@ -485,8 +486,8 @@ int main( int argc, char** argv )
 	{
 		sem.wait();
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
-		//threads.create_thread( w );
-		w();
+		threads.create_thread( w );
+		//w();
 		id += 15;
 	}
 	threads.join_all();
