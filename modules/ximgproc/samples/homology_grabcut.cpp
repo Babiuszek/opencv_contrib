@@ -206,6 +206,43 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 	}
 	return answer;
 }
+double calculateFMeasure(const cv::Mat& output, const cv::Mat& key, int verboseLevel)
+{
+	int tp = 0;
+	int tn = 0;
+	int fp = 0;
+	int fn = 0;
+	int wv = 0;
+	for (int i = 0; i < output.rows; i++)
+		for (int j = 0; j < output.cols; j++)
+		{
+			int value = (int)output.at<uchar>(i, j);
+			int answer = (int)key.at<uchar>(i, j);
+			
+			if (value == GC_BGD || value == GC_PR_BGD)
+				value = GC_PR_BGD;
+			else value = GC_PR_FGD;
+			answer = answer / 255 + 2;
+
+			if (value == GC_PR_FGD && answer == GC_PR_FGD)
+				tp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_BGD)
+				tn++;
+			else if (value == GC_PR_FGD && answer == GC_PR_BGD)
+				fp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_FGD)
+				fn++;
+			else
+			{
+				wv++;
+				if (verboseLevel > 2)
+					std::cout << "Wrong value " << value << " or answer " << answer << "\n";
+			}
+		}
+	double precision = (double)(tp)/(tp+fp);
+	double recall = (double)(tp)/(tp+fn);
+	return 2.0/(1.0/precision + 1.0/recall);
+}
 
 void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& filters,
 	cv::Mat& mask, double skelOccup, int iterCount, double epsilon, int verboseLevel, int mode,
@@ -225,7 +262,8 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& fi
 	total_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
 	// Calculate and save accuracy
-	accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
+	//accuracy = calculateAccuracy( mask, image_mask, verboseLevel, toLog );
+	accuracy = calculateFMeasure( mask, image_mask, verboseLevel );
 }
 
 void swapToInput( Mat& mask )
@@ -297,7 +335,7 @@ public:
 		//readMask( image_mask );
 
 		// Save image data and enlarge image/mask if needed be
-		int scale = 10;
+		int scale = 5;
 		std::string original_size = toString(image.rows) + "x" + toString(image.cols);
 		if (scale > 1)
 		{
@@ -344,7 +382,7 @@ public:
 			Mat bin_mask;
 			bin_mask.create( mask.size(), CV_8UC1 );
 
-			for (int mode = ONE_STEP; mode < HOMOLOGY; ++mode)
+			for (int mode = TWO_STEP; mode < HOMOLOGY; ++mode)
 			{
 				// Perform iteration
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
@@ -447,7 +485,8 @@ int main( int argc, char** argv )
 	{
 		sem.wait();
 		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
-		threads.create_thread( w );
+		//threads.create_thread( w );
+		w();
 		id += 15;
 	}
 	threads.join_all();

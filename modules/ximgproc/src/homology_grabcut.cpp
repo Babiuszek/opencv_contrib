@@ -642,8 +642,11 @@ static void estimateSegmentation( GCGraph<double>& graph, Mat& mask )
 // Shrinking function, creates a material by times smaller
 Mat* shrink( const Mat& input, Mat& mask, const int by )
 {
+	int s_col = input.cols >= 640 ? input.cols/64 : input.cols/32;
+	int s_row = input.rows >= 640 ? input.rows/64 : input.rows/32;
+
 	// Create our shrunk Material
-	Mat* output = new Mat( input.rows/by, input.cols/by, CV_64FC(2*CHANNELS) );
+	Mat* output = new Mat( input.rows/s_row, input.cols/s_col, CV_64FC(2*CHANNELS) );
 
 	// For each point in ouput image...
 	Point p_i; // Input iterator
@@ -658,23 +661,25 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 			for (int i = 0; i < 2*CHANNELS; i++)
 				values[i] = 0.0;
 
+			int count = 0; // How many pixels were found. Usually s_col*s_row, but edges may differ
 			// And calculate these values using the area from input image. We first calculate the means
-			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
+			for ( p_i.y = s_row*p_o.y; (p_i.y < s_row*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
 			{
-				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
+				for ( p_i.x = s_col*p_o.x; (p_i.x < s_col*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
 				{
 					Vecd_c color = input.at<Vecd_c>(p_i);
 					for (int i = 0; i < CHANNELS; i++)
 						values[i] += color.val[i];
+					count++;
 				}
 			}
 			for (int i = 0; i < CHANNELS; i++)
-				values[i] /= by*by;
+				values[i] /= count*count;
 			
 			// Then calculate the standard deviations
-			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
+			for ( p_i.y = s_row*p_o.y; (p_i.y < s_row*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
 			{
-				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
+				for ( p_i.x = s_col*p_o.x; (p_i.x < s_col*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
 				{
 					Vecd_c color = input.at<Vecd_c>(p_i);
 					for (int i = 0; i < CHANNELS; i++)
@@ -682,7 +687,7 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 				}
 			}
 			for (int i = CHANNELS; i < 2*CHANNELS; i++)
-				values[i] = sqrt(values[i] / (by*by));
+				values[i] = sqrt(values[i] / (count*count));
 		}
 	}
 	
@@ -698,8 +703,8 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 			uchar& value = out_mask.at<uchar>(p_o);
 
 			// And compare it to its by*by factors. GC_FGD > GC_BGD > GC_PR_FGD > GC_PR_BGD
-			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
-				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
+			for ( p_i.y = s_row*p_o.y; (p_i.y < s_row*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
+				for ( p_i.x = s_col*p_o.x; (p_i.x < s_col*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
 					if (mask.at<uchar>(p_i) == GC_FGD)
 						value = GC_FGD;
 					else if (mask.at<uchar>(p_i) == GC_BGD && value != GC_FGD)
@@ -899,6 +904,8 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	{
 		// Apply the filter. Default values are:
 		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
+		//img_cg[0].copyTo( img_cg[i+1] );
+		//filter2D( img_cg[i+1], img_cg[i+1], CV_64F, filters_v[i] );
 		filter2D( img_cg_v[i+1], img_cg_v[i+1], CV_64F, filters_v[i] );
 	}
 	// Build back our final solution
@@ -928,7 +935,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 			if (pca_i < pcaCount)
 			{
 				unsigned int v = rng.next() % (img_dc->rows*img_dc->cols);
-				if (v < (int)(pcaCount*1.1)) // 110% chance, so the entire set will fill
+				if (v < (unsigned int)(pcaCount*1.1)) // 110% chance, so the entire set will fill
 				{
 					for (unsigned int i = 0; i < 2*CHANNELS; i++)
 						pcainit.at<double>( pca_i, i ) = values[i];
