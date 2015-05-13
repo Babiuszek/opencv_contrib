@@ -176,7 +176,9 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 			if (value == GC_BGD || value == GC_PR_BGD)
 				value = GC_PR_BGD;
 			else value = GC_PR_FGD;
-			answer = answer / 255 + 2;
+			if (answer == GC_BGD || answer == GC_PR_BGD)
+				answer = GC_PR_BGD;
+			else answer = GC_PR_FGD;
 
 			if (value == GC_PR_FGD && answer == GC_PR_FGD)
 				tp++;
@@ -222,7 +224,9 @@ double calculateFMeasure(const cv::Mat& output, const cv::Mat& key, int verboseL
 			if (value == GC_BGD || value == GC_PR_BGD)
 				value = GC_PR_BGD;
 			else value = GC_PR_FGD;
-			answer = answer / 255 + 2;
+			if (answer == GC_BGD || answer == GC_PR_BGD)
+				answer = GC_PR_BGD;
+			else answer = GC_PR_FGD;
 
 			if (value == GC_PR_FGD && answer == GC_PR_FGD)
 				tp++;
@@ -242,6 +246,8 @@ double calculateFMeasure(const cv::Mat& output, const cv::Mat& key, int verboseL
 	double precision = (double)(tp)/(tp+fp);
 	double recall = (double)(tp)/(tp+fn);
 	double answer = 2.0/(1.0/precision + 1.0/recall);
+	//std::cout << tp << "tp " << fp << "fp " << tn << "tn " << fn << "fn\n";
+	//std::cout << precision << " " << recall << " " << answer << "\n";
 	return answer;
 }
 
