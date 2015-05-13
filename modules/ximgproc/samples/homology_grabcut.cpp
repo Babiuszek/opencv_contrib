@@ -335,7 +335,7 @@ public:
 		//readMask( image_mask );
 
 		// Save image data and enlarge image/mask if needed be
-		int scale = 5;
+		int scale = 1;
 		std::string original_size = toString(image.rows) + "x" + toString(image.cols);
 		if (scale > 1)
 		{
@@ -382,7 +382,7 @@ public:
 			Mat bin_mask;
 			bin_mask.create( mask.size(), CV_8UC1 );
 
-			for (int mode = TWO_STEP; mode < HOMOLOGY; ++mode)
+			for (int mode = ONE_STEP; mode < HOMOLOGY; ++mode)
 			{
 				// Perform iteration
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
