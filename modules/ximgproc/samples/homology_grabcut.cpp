@@ -21,7 +21,7 @@ using namespace std;
 using namespace cv;
 
 boost::mutex mtx;
-boost::interprocess::interprocess_semaphore sem(10);
+boost::interprocess::interprocess_semaphore sem(30);
 
 enum MODE {
 	ONE_STEP	= 0,
@@ -294,10 +294,10 @@ public:
 		// Load the images
 		Mat image = imread( source, 1 );
 		Mat image_mask = imread( mask, 1 );
-		readMask( image_mask );
+		//readMask( image_mask );
 
 		// Save image data and enlarge image/mask if needed be
-		int scale = 5;
+		int scale = 10;
 		std::string original_size = toString(image.rows) + "x" + toString(image.cols);
 		if (scale > 1)
 		{
