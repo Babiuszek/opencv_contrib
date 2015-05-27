@@ -38,6 +38,8 @@
 // the use of this software, even if advised of the possibility of such damage.
 //
 //M*/
+#include "capd/apiRedHom/Algorithms.h"
+
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
 
@@ -714,6 +716,114 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 	return output;
 }
 
+// Homology version of shrink
+Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
+{
+	// Create our shrunk Material
+	Mat* output = new Mat( input.rows/by, input.cols/by, CV_64FC(HOM_CHANNELS) );
+
+	// For each point in ouput image...
+	Point p_i; // Input iterator
+	Point p_o; // Output iterator
+	for( p_o.y = 0; p_o.y < output->rows; p_o.y++ )
+	{
+		for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
+		{
+			// ...we take it's values (vector of 10 metrics)
+			Vec<double, HOM_CHANNELS>& values = output->at< Vec<double, HOM_CHANNELS> >(p_o);
+			// ...initialize base values as 0
+			for (int i = 0; i < HOM_CHANNELS; i++)
+				values[i] = 0.0;
+			// We also create CAPD library version of input image
+			std::vector< std::vector< double > > capd_img;
+
+			// And calculate these values using the area from input image. We first load all pixel values into our CAPD img
+			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
+			{
+				std::vector< double > vec;
+				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
+					vec.push_back( (double)input.at< uchar >(p_i) );
+				capd_img.push_back( vec );
+			}
+			// We got our CAPD image, we now have to use homology
+			capd::apiRedHom::ImagePersistentHomology IPH( capd_img );
+			std::vector< std::pair< double, double > > diagram = IPH();
+			
+			// We then create the abs difference vector needed for further calculations
+			std::vector< double > hom_diffs;
+			for (int i = 0; i < diagram.size()-1; ++i)
+				hom_diffs.push_back( abs( diagram[i].second - diagram[i].first ) );
+			hom_diffs.push_back( abs( 255 - diagram[diagram.size()-1].first ) );
+
+			for (int i = 0; i < diagram.size(); ++i)
+			{
+				if (!std::isfinite( hom_diffs[i] ))
+					std::cout << "hom_diffs " << i << "/" << hom_diffs.size()-1 << " is INF!\n";
+				if (std::isnan( hom_diffs[i] ))
+					std::cout << "hom_diffs " << i << "/" << hom_diffs.size()-1 << " is NAN!\n";
+			}
+			
+			// We use the abs difference on each of our 10 metrics
+			values[0] = hom_diffs[0]; //min
+			values[1] = hom_diffs[ hom_diffs.size()-1 ]; //max
+			values[4] = ( hom_diffs[ (int)ceil((double)(hom_diffs.size()-1)/4) ] +
+				hom_diffs[ (int)floor((double)(hom_diffs.size()-1)/4) ] )/2; //Q1;
+			values[5] =  ( hom_diffs[ (int)ceil((double)(hom_diffs.size()-1)/2) ] +
+				hom_diffs[ (int)floor((double)(hom_diffs.size()-1)/2) ] )/2; //Q2 (Median);
+			values[6] = ( hom_diffs[ (int)ceil((double)(hom_diffs.size()-1)*3/4) ] +
+				hom_diffs[ (int)floor((double)(hom_diffs.size()-1)*3/4) ] )/2; //Q3;
+			// Calculate mean and sums
+			for (int i = 0; i < hom_diffs.size(); ++i)
+			{
+				values[2] += hom_diffs[i]; // Sum of elements for mean
+				values[7] += std::sqrt( hom_diffs[i] ); //Sum of square roots
+				values[8] += hom_diffs[i]; // Sum of elements
+				values[9] += hom_diffs[i]*hom_diffs[i]; // Sum of squares
+			}
+			values[2] /= hom_diffs.size(); // mean
+			// Calculate standard deviation
+			for (int i = 0; i < hom_diffs.size(); ++i)
+				values[3] += (hom_diffs[i] - values[2])*(hom_diffs[i] - values[2]);
+			values[3] /= hom_diffs.size(); // standard deviation
+			
+			/*//std::cout << "\n";
+			for (int i = 0; i < diagram.size(); i++)
+				std::cout << "<" << diagram[i].first << ", " << diagram[i].second << ">, ";
+			std::cout << "\n";
+			for (int i = 0; i < HOM_CHANNELS; i++)
+				std::cout << output->at< Vec<double, HOM_CHANNELS> >(p_o)[i] << " ";
+			std::cout << "\n\n";*/
+		}
+	}
+
+	// Now time to shrink the mask
+	Mat out_mask;
+	out_mask.create( output->rows, output->cols, CV_8UC1 );
+	out_mask.setTo( Scalar(2) );
+	for( p_o.y = 0; p_o.y < out_mask.rows; p_o.y++ )
+	{
+		for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
+		{
+			// Take a single point on output mask
+			uchar& value = out_mask.at<uchar>(p_o);
+
+			// And compare it to its by*by factors. GC_FGD > GC_BGD > GC_PR_FGD > GC_PR_BGD
+			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
+				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
+					if (mask.at<uchar>(p_i) == GC_FGD)
+						value = GC_FGD;
+					else if (mask.at<uchar>(p_i) == GC_BGD && value != GC_FGD)
+						value = GC_BGD;
+					else if (value != GC_FGD && value != GC_BGD)
+						value = max( mask.at<uchar>(p_i), value );
+		}
+	}
+	out_mask.copyTo(mask);
+
+	// And done!
+	return output;
+}
+
 // Function that copies the answer from shrunk image onto the bigger mask
 void expandShrunkMat(const Mat& input, Mat& output, const int by)
 {
@@ -869,10 +979,8 @@ int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask
 
 int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, 
 		OutputArray _output_mask, double& it_time1, double& it_time2, std::string& path,
-		int pcaCount, int iterCount, double epsilon )
-{
-	const int by = 10;
-	
+		int pcaCount, int iterCount, double epsilon, int by )
+{	
 	// Standard null checking procedure
 	if( _img.empty() )
 		CV_Error( CV_StsBadArg, "image is empty" );
@@ -907,71 +1015,9 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	// Shrink the image and mask to get 28 channels
 	Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
 	
-	// Create pca data set and prepare RNG generator
-	Mat pcaset, pcainit;
-	pcaset.create( img_dc->rows*img_dc->cols, 2*CHANNELS, CV_64FC1 );
-	pcainit.create( pcaCount, 2*CHANNELS, CV_64FC1 );
-	RNG rng( rand() );
-
-	// Fill it with proper data
-	Point p;
-	int pca_i = 0;
-	for (p.y = 0; p.y < img_dc->rows; p.y++)
-		for (p.x = 0; p.x < img_dc->cols; p.x++)
-		{
-			// Fill in pca set
-			Vecd_dc values = img_dc->at<Vecd_dc>(p);
-			for (unsigned int i = 0; i < 2*CHANNELS; i++)
-				pcaset.at<double>( p.y*img_dc->cols + p.x, i ) = values[i];
-			
-			// Fill in pca init
-			if (pca_i < pcaCount)
-			{
-				unsigned int v = rng.next() % (img_dc->rows*img_dc->cols);
-				if (v < (int)(pcaCount*1.1)) // 110% chance, so the entire set will fill
-				{
-					for (unsigned int i = 0; i < 2*CHANNELS; i++)
-						pcainit.at<double>( pca_i, i ) = values[i];
-					++pca_i;
-				}
-			}
-		}
-
-	// Create the pca class
-	PCA pca(pcainit, // pass the data
-			Mat(), // we do not have a pre-computed mean vector,
-                   // so let the PCA engine to compute it
-            PCA::DATA_AS_ROW, // indicate that the vectors
-                                // are stored as matrix rows
-                                // (use PCA::DATA_AS_COL if the vectors are
-                                // the matrix columns)
-            3 // specify, how many principal components to retain
-			);
-
-	// Create and fill the compressed mat
-	Mat compressed;
-	compressed.create( img_dc->rows*img_dc->cols, 3, CV_64FC1 );
-	pca.project( pcaset, compressed );
-	
-	// Copy the PCA answer into a proper image matrix
-	Mat img_compressed;
-	img_compressed.create( img_dc->rows, img_dc->cols, CV_64FC3 );
-	for (p.y = 0; p.y < img_dc->rows; p.y++)
-		for (p.x = 0; p.x < img_dc->cols; p.x++)
-		{
-			Vec3d& values = img_compressed.at<Vec3d>(p);
-			for (unsigned int i = 0; i < 3; i++)
-				values[i] = compressed.at<double>( p.y*img_dc->cols + p.x, i );
-		}
-	delete img_cg;
-	delete img_dc;
-	Mat img_ce; //Compressed and Enlarged
-	resize( img_compressed, img_ce, img_compressed.size()*10 );
-	imwrite( path + "c.png", img_ce );
-	
 	// Perform grabcut and save its time for future references
 	clock_t start = clock();
-	int total_iters = perform_grabcut_on< double, double, 3 >( img_compressed, mask, iterCount, epsilon );
+	int total_iters = perform_grabcut_on< double, double, 2*CHANNELS >( *img_dc, mask, iterCount, epsilon );
 	clock_t finish = clock();
 	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
@@ -986,8 +1032,51 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	finish = clock();
 	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 	
+	delete img_cg;
+	delete img_dc;
 	return total_iters;
 }
+
+int homology_grabcut(InputArray _img, InputArray _mask,
+		OutputArray _output_mask, double& it_time1, double& it_time2,
+		int iterCount, double epsilon, int by)
+{
+	// Standard null checking procedure
+	if( _img.empty() )
+		CV_Error( CV_StsBadArg, "image is empty" );
+	if( _img.type() != CV_8UC3 )
+		CV_Error( CV_StsBadArg, "image must have CV_8UC3 type" );
+	
+	Mat img = _img.getMat();
+	if (1 < img.channels())
+		cvtColor(img, img, COLOR_RGB2GRAY);
+	Mat mask = _mask.getMat();
+	Mat& output_mask = _output_mask.getMatRef();
+	checkMask( img, mask );
+	mask.copyTo( output_mask );
+	
+	// Shrink the image and mask to get 10 metric channels
+	Mat* hom_img = shrink_homology( img, mask, by ); // Image double channels (shrunk)
+	
+	// Perform homology grabcut and save its time for future references
+	clock_t start = clock();
+	int total_iters = perform_grabcut_on< double, double, HOM_CHANNELS>( *hom_img, mask, iterCount/2, epsilon );
+	clock_t finish = clock();
+	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	delete hom_img;
+	
+	// Resize the mask and perform normal grabcut
+	expandShrunkMat( mask, output_mask, by );
+	
+	// Perform grabcut and save its time for future references
+	start = clock();
+	total_iters += perform_grabcut_on< uchar, double, 1 >( img, mask, iterCount/2, epsilon );
+	finish = clock();
+	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+
+	return total_iters;
+}
+
 
 // Create a single filter in accordance to
 // http://www.robots.ox.ac.uk/~vgg/research/texclass/filters.html

@@ -95,7 +95,11 @@ namespace cv
 	 */
 	CV_EXPORTS_W int two_step_grabcut(InputArray img, InputArray mask, InputArray filters,
 		OutputArray output_mask, double& it_time1, double& it_time2, std::string& path,
-		int pcaCount=2048, int iterCount=1, double epsilon=0.001);
+		int pcaCount=2048, int iterCount=1, double epsilon=0.001, int by=10);
+
+	CV_EXPORTS int homology_grabcut(InputArray img, InputArray mask,
+		OutputArray output_mask, double& it_time1, double& it_time2,
+		int IterCount=1, double epsilon=0.001, int by=10);
 	
 	/** @brief Constructs 13 Schmid filters storing them in CV_32FC(13) Mat bank
 	
