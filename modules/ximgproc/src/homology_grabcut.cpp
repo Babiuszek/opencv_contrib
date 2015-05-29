@@ -465,6 +465,30 @@ static void initGMMs( const Mat& img, const Mat& mask,
 		}
 	}
 	// Standard debug, none should be empty
+
+	// Anti-crash quick-fix, random pixels are moved if too little are picked for either FGD or BGD
+	if (bgdSamples.size() <= 5)
+	{
+		RNG rng(0);
+		for (int i = 0; i < 10; ++i)
+		{
+			int it = rng.next()%fgdSamples.size();
+			bgdSamples.push_back( fgdSamples[it] );
+			fgdSamples.erase( fgdSamples.begin() + it );
+		}
+	}
+	if (fgdSamples.size() <= 5)
+	{
+		RNG rng(0);
+		for (int i = 0; i < 10; ++i)
+		{
+			int it = rng.next()%bgdSamples.size();
+			fgdSamples.push_back( bgdSamples[it] );
+			bgdSamples.erase( bgdSamples.begin() + it );
+		}
+	}
+
+	// Debuf, has meaning if upper rewrites are removed
 	if (bgdSamples.empty() || fgdSamples.empty())
 	{
 		std::cout << "bgdSamples=" << bgdSamples.size() << ", fgdSamples=" << fgdSamples.size() << std::endl;
@@ -1053,7 +1077,6 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	Mat mask = _mask.getMat();
 	Mat& output_mask = _output_mask.getMatRef();
 	checkMask( img, mask );
-	mask.copyTo( output_mask );
 	
 	// Shrink the image and mask to get 10 metric channels
 	Mat* hom_img = shrink_homology( img, mask, by ); // Image double channels (shrunk)
@@ -1070,7 +1093,7 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	
 	// Perform grabcut and save its time for future references
 	start = clock();
-	total_iters += perform_grabcut_on< uchar, double, 1 >( img, mask, iterCount/2, epsilon );
+	total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount/2, epsilon );
 	finish = clock();
 	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
 

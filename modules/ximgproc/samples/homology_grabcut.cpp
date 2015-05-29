@@ -22,6 +22,8 @@ using namespace cv;
 
 boost::mutex mtx;
 boost::interprocess::interprocess_semaphore sem(30);
+int progress = 0;
+int total = 0;
 
 enum MODE {
 	ONE_STEP	= 0,
@@ -195,17 +197,17 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 					std::cout << "Wrong value " << value << " or answer " << answer << "\n";
 			}
 		}
-	double answer = (double)(tp+tn)/(tp+tn+fp+fn);
+	double precision = (double)(tp)/(tp+fp);
+	double recall = (double)(tp)/(tp+fn);
+	double answer = 2.0/(1.0/precision + 1.0/recall);
+	//double answer = (double)(tp+tn)/(tp+tn+fp+fn);
 	if (verboseLevel > 0)
-		std::cout << "Accuracy: " << answer << "\n";
+		;//toLog = toLog + ";" + toString((float)answer);
 	if (verboseLevel > 1)
 	{
-		std::cout << "True positives: " << tp << "\n";
-		std::cout << "True negatives: " << tn << "\n";
-		std::cout << "False positives: " << fp << "\n";
-		std::cout << "False negatives: " << fn << "\n";
-		std::cout << "Wrong values: " << wv << "\n";
+		toLog = toLog + ";" + toString(tp) + ";" + toString(tn) + ";" + toString(fp) + ";" + toString(fn);
 	}
+	toLog = toLog + "\n";
 	return answer;
 }
 double calculateFMeasure(const cv::Mat& output, const cv::Mat& key, int verboseLevel)
@@ -259,16 +261,19 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& fi
 	// Perform grabcut and measure it's time and number of iterations
 	clock_t start = clock();
 
-	if (mode == ONE_STEP)
+	if (mode == ONE_STEP) {
 		total_iters = one_step_grabcut( image, image_mask, mask, iterCount, epsilon);
-	else if (mode == TWO_STEP)
+	}
+	else if (mode == TWO_STEP) {
 		total_iters = two_step_grabcut( image, image_mask, filters,
 						mask, it_time1, it_time2, test,
 						2048, iterCount/2, epsilon, by );
-	else if (mode == HOMOLOGY)
+	}
+	else if (mode == HOMOLOGY) {
 		total_iters = homology_grabcut( image, image_mask,
 						mask, it_time1, it_time2,
 						iterCount/2, epsilon, by );
+	}
 
 	clock_t finish = clock();
 	total_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
@@ -399,7 +404,7 @@ public:
 				nextIter(image, image_mask, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
 					toLog, accuracy, total_time, it_time1, it_time2, total_iters,
-					out_path + "_t/" + original + "_TWO_so" + toString((float)skelOccup/10.0));
+					out_path + "_t/" + original + "_TWO_so" + toString((float)skelOccup/10.0), 10);
 				swapToValues( mask );
 
 				// Save calculated image mask
@@ -441,8 +446,20 @@ private:
 class WorkerMats {
 public:
 	WorkerMats( const std::string &_logFileName, const std::string &_out_path, Mat& _image, Mat& _mask,
-		const int _start_id, const int _scale, const int _by) : logFileName(_logFileName), out_path(_out_path), image(_image), image_mask(_mask),
-		start_id(_start_id), scale(_scale), by(_by) {};
+		const int _start_id, const int _scale, const int _objects, const int _by) :
+		logFileName(_logFileName), out_path(_out_path),
+		start_id(_start_id), scale(_scale), objects(_objects), by(_by)
+	{
+		_image.copyTo( image );
+		_mask.copyTo( image_mask );
+	}
+	WorkerMats(WorkerMats& wm) :
+		logFileName(wm.logFileName), out_path(wm.out_path),
+		start_id(wm.start_id), scale(wm.scale), objects(wm.objects), by(wm.by) 
+	{
+		wm.image.copyTo( image );
+		wm.image_mask.copyTo( image_mask );
+	}
 
 	void operator()() {
 		// Transform mask to one channel binary image
@@ -484,8 +501,16 @@ public:
 				// Set original filename to image id
 				original = toString( id );
 
+				// Write progress
+				float current_progress = 0.0;
+				{
+					boost::lock_guard<boost::mutex> lock(mtx);
+					current_progress = (float)progress / total;
+				}
+				cout.setf(ios::fixed);
+				cout << "[" << setprecision(2) << current_progress*100.f << "%] - Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
+
 				// Perform iteration
-				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
 				nextIter(image, image_mask, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
 					toLog, accuracy, total_time, it_time1, it_time2, total_iters,
@@ -495,21 +520,30 @@ public:
 				// Save calculated image mask
 				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : (mode == HOMOLOGY ? "_HOM" : "_THREE")))
 					+ "_so" + toString((float)skelOccup/10.0) + ".png";
-				imwrite( output_file, mask );
+				imwrite( output_file, image );
 
 				// Update log string
 				std::string original_size = toString(image.cols) + "x" + toString(image.rows);
 				if (mode == ONE_STEP)
-					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
-						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-						toString((float)total_time) + ";0.0;0.0;" +
-						original_size + ";" + toString(scale) + ";" + output_file + "\n";
+				{
+					toLog += toString(scale) + ";" + toString(objects) + ";" + "N/A" + ";" + "N/A" + ";" +
+						"N/A" + ";" + toString(by) + ";" + "0" + ";" +
+						toString((float)total_time) + ";" + "0.0" + ";" + "0.0";
+					calculateAccuracy( mask, image_mask, 2, toLog );
+				}
 				else
-					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
-						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-						toString((float)total_time) + ";" + toString((float)it_time1) + ";" + toString((float)it_time2) + ";" +
-						original_size + ";" + toString(scale) + ";" + output_file + "\n";
+				{
+					toLog += toString(scale) + ";" + toString(objects) + ";" + "N/A" + ";" + "N/A" + ";" +
+						"N/A" + ";" + toString(by) + ";" + toString(mode) + ";" +
+						toString((float)total_time) + ";" + toString((float)it_time1) + ";" + toString((float)it_time2);
+					calculateAccuracy( mask, image_mask, 2, toLog );
+				}
+				
 				++id;
+				{
+					boost::lock_guard<boost::mutex> lock(mtx);
+					++progress;
+				}
 			}
 		}
 		// Initalize log file
@@ -528,9 +562,10 @@ private:
 	const std::string out_path;
 	const int start_id;
 	const int scale;
+	const int objects;
 	const int by;
-	Mat& image;
-	Mat& image_mask;
+	Mat image;
+	Mat image_mask;
 };
 
 class ImageGenerator {
@@ -587,7 +622,7 @@ public:
 			// Create points so that the object is between 1/16 and 1/4 of the size of the entire image
 			dst[0] = Point2f( rng.next()%(image.rows*3/4), rng.next()%(image.cols*3/4) );
 			// Do ming our images are square, so the following random number can be used for both, width and height
-			float added = max(rng.next()%image.rows/2, image.rows/4);
+			float added = max( (int)(rng.next()%image.rows/2), image.rows/4 );
 			dst[1] = Point2f( dst[0].x + added, dst[0].y );
 			dst[2] = Point2f( dst[0].x, dst[0].y + added );
 
@@ -616,7 +651,7 @@ public:
 				{
 					Vec3b val = objects[i].at<Vec3b>(p);
 					// Only the first one is needed as only this one will be checked
-					max[0] = max( max[0], val[0] );
+					max[0] = std::max( max[0], val[0] );
 				}
 				// 0 = background. Textures start from 1
 				if ((unsigned int)max[0] == (selected_object+1))
@@ -668,57 +703,46 @@ public:
 
 int main( int argc, char** argv )
 {
-	/*
-	char* path = argc >= 3 ? argv[2] : (char*)"./bin/databases/tools";
-	std::vector<std::string> sources;
-	GetFilesInDirectory(sources, path);
-	for (std::vector<std::string>::iterator i = sources.begin(); i != sources.end(); i)
-	{
-		if (!isTypeGraphic( getFileType( *i )))
-			i = sources.erase(i);
-		else ++i;
-	}
-	for (std::vector<std::string>::iterator i = sources.begin(); i != sources.end(); ++i)
-	{
-		Mat img = imread( *i );
-		Point p;
-		for (p.y = 0; p.y < img.rows; p.y++)
-			for (p.x = 0; p.x < img.cols; p.x++)
-			{
-				Vec3b& val = img.at<Vec3b>(p);
-				if (val[0] == 0)
-				{
-					val[0] = 255;
-					val[1] = 255;
-					val[2] = 255;
-				}
-				else
-				{
-					val[0] = 0;
-					val[1] = 0;
-					val[2] = 0;
-				}
-			}
-		std::string filename = "./bin/databases/shapes/" + getFileName( *i ) + ".png";
-		imwrite( filename, img );
-	}
-	*/
-
 	char* log_path = argc >= 2 ? argv[1] : (char*)"./bin/log.csv";
 	char* shapes = argc >= 3 ? argv[2] : (char*)"./bin/databases/shapes";
 	char* textures = argc >= 4 ? argv[3] : (char*)"./bin/databases/textures";
-	char* out_path = argc >= 5 ? argv[4] : (char*)"./bin/test";
+	char* out_path = argc >= 5 ? argv[4] : (char*)"./bin/answers";
 
 	ImageGenerator generator( shapes, textures );
 
+	// Make sure we get correctly random seed
 	srand(time(NULL));
-	pair< Mat, Mat > data = generator.generateImage( 1024, 1024, 5, rand() );
 
-	imwrite( "./bin/test/test.png", data.first );
-	imwrite( "./bin/test/test_mask.png", data.second );
+	// Set totals: id_step * sizes * square_sizes * images
+	total = 15*3*5*100;
 
-	WorkerMats w( log_path, out_path, data.first, data.second, 0, 1, 8);
-	w();
+	// Create tests for image size 512, 1024, 2048, 4096
+	int id = 0;
+	boost::thread_group threads;
+	for (int i = 2; i < 16; i*=2)
+	{
+		// For each chosen size and object count test squares of 8, 16, 32, 64 and 128
+		for (int k = 8; k < 256; k*=2)
+		{
+			// For each data set test 100 images
+			for (int l = 0; l < 100; ++l)
+			{
+				// Randomize the amount of objects
+				int j = rand()%8 + 1;
+
+				// First generate the actual image
+				pair< Mat, Mat > data = generator.generateImage( 512*i, 512*i, j, rand() );
+
+				// Then create a thread for it
+				sem.wait();
+				//std::cout << 512*i << " " << j << " " << k << " " << l << " started work...\n";
+				WorkerMats w( log_path, out_path, data.first, data.second, id, 512*i, j, k);
+				threads.create_thread( w );
+				id += 15;
+			}
+		}
+	}
+	threads.join_all();
 
 	/*
 	// Initialize paths
