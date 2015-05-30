@@ -17,6 +17,8 @@
 	#include <errno.h>
 #endif
 
+#define M_PI           3.14159265358979323846  /* pi */
+
 using namespace std;
 using namespace cv;
 
@@ -121,18 +123,16 @@ int getID(string& line)
 		Answer = Answer*10 + line.at(i) - 48;
 	return Answer;
 }
+
 string toString(float value)
 {
 	// Init
 	string Ans = "";
+	bool negative = value < 0.f ? true : false;
 	char c;
 
-	// Negative
-	if (value < 0.f)
-	{
-		Ans = Ans + "-";
+	if (negative)
 		value = -value;
-	}
 
 	// Integer
 	int t = (int)floor(value);
@@ -148,6 +148,9 @@ string toString(float value)
 
 	if (value > 0)
 		Ans = Ans + ".";
+	
+	if (negative)
+		Ans = "-" + Ans;
 
 	// Fraction
 	string fraction = "";
@@ -337,6 +340,12 @@ void readMask( Mat& mask )
 }
 
 class Worker {
+private:
+	const std::string logFileName;
+	const std::string source;
+	const std::string mask;
+	const std::string out_path;
+	const int start_id;
 public:
 	Worker( const std::string &_logFileName, const std::string &_source, const std::string &_mask,
 		const std::string &_out_path, const int _start_id) :
@@ -435,21 +444,26 @@ public:
 		}
 		sem.post();
 	}
-
-private:
-	const std::string logFileName;
-	const std::string source;
-	const std::string mask;
-	const std::string out_path;
-	const int start_id;
 };
 class WorkerMats {
+private:
+	const std::string logFileName;
+	const std::string out_path;
+	const int start_id;
+	const int scale;
+	const int objects;
+	const int by;
+	std::string description;
+	Mat image;
+	Mat image_mask;
+
 public:
 	WorkerMats( const std::string &_logFileName, const std::string &_out_path, Mat& _image, Mat& _mask,
-		const int _start_id, const int _scale, const int _objects, const int _by) :
+		const std::string _description, const int _start_id, const int _scale, const int _objects, const int _by) :
 		logFileName(_logFileName), out_path(_out_path),
 		start_id(_start_id), scale(_scale), objects(_objects), by(_by)
 	{
+		description = _description;
 		_image.copyTo( image );
 		_mask.copyTo( image_mask );
 	}
@@ -457,6 +471,7 @@ public:
 		logFileName(wm.logFileName), out_path(wm.out_path),
 		start_id(wm.start_id), scale(wm.scale), objects(wm.objects), by(wm.by) 
 	{
+		description = wm.description;
 		wm.image.copyTo( image );
 		wm.image_mask.copyTo( image_mask );
 	}
@@ -520,21 +535,21 @@ public:
 				// Save calculated image mask
 				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : (mode == HOMOLOGY ? "_HOM" : "_THREE")))
 					+ "_so" + toString((float)skelOccup/10.0) + ".png";
-				imwrite( output_file, image );
+				//imwrite( output_file, mask );
 
 				// Update log string
 				std::string original_size = toString(image.cols) + "x" + toString(image.rows);
 				if (mode == ONE_STEP)
 				{
-					toLog += toString(scale) + ";" + toString(objects) + ";" + "N/A" + ";" + "N/A" + ";" +
-						"N/A" + ";" + toString(by) + ";" + "0" + ";" +
+					toLog += toString(scale) + ";" + toString(objects) + ";" + description +
+						toString(by) + ";" + "0" + ";" +
 						toString((float)total_time) + ";" + "0.0" + ";" + "0.0";
 					calculateAccuracy( mask, image_mask, 2, toLog );
 				}
 				else
 				{
-					toLog += toString(scale) + ";" + toString(objects) + ";" + "N/A" + ";" + "N/A" + ";" +
-						"N/A" + ";" + toString(by) + ";" + toString(mode) + ";" +
+					toLog += toString(scale) + ";" + toString(objects) + ";" + description +
+						toString(by) + ";" + toString(mode) + ";" +
 						toString((float)total_time) + ";" + toString((float)it_time1) + ";" + toString((float)it_time2);
 					calculateAccuracy( mask, image_mask, 2, toLog );
 				}
@@ -556,16 +571,6 @@ public:
 		}
 		sem.post();
 	}
-
-private:
-	const std::string logFileName;
-	const std::string out_path;
-	const int start_id;
-	const int scale;
-	const int objects;
-	const int by;
-	Mat image;
-	Mat image_mask;
 };
 
 class ImageGenerator {
@@ -574,6 +579,14 @@ private:
 	std::vector< std::string > textures;
 	
 public:
+	struct Data {
+		Mat image;
+		Mat mask;
+		std::string description;
+
+		Data(Mat _image, Mat _mask, std::string _description) : image(_image), mask(_mask) {description = _description;}
+	};
+
 	ImageGenerator(std::string _shapes, std::string _textures)
 	{
 		// Load shapes database
@@ -596,13 +609,18 @@ public:
 	}
 
 	// pair< Image, Mask >
-	std::pair< Mat, Mat > generateImage( int width, int height, int object_count, int seed)
+	Data generateImage( const int width, const int height, const int object_count, const int seed)
 	{
 		// Make sure random works correctly and initialize vectors
 		RNG rng( seed );
 		std::vector< Mat > objects;
 		std::vector< Mat > object_textures;
+		std::vector< Mat > object_transformations;
 		std::vector< unsigned int > texture_ids;
+		std::string description = "";
+
+		// Select a single object that will be the foreground
+		unsigned int selected_object = object_count-1;
 
 		// Create our image...
 		Mat image;
@@ -616,15 +634,64 @@ public:
 			int current = rng.next()%shapes.size();
 			Mat object = imread( shapes[current] );
 
+			// Points:
+			// 0 1
+			// 2 -
 			// Get affine transformation
 			Point2f src[3] = { Point2f(0.f, 0.f), Point2f( object.cols-1, 0.f ), Point2f( 0.f, object.rows-1 ) };
-			Point2f dst[3];
-			// Create points so that the object is between 1/16 and 1/4 of the size of the entire image
-			dst[0] = Point2f( rng.next()%(image.rows*3/4), rng.next()%(image.cols*3/4) );
-			// Do ming our images are square, so the following random number can be used for both, width and height
-			float added = max( (int)(rng.next()%image.rows/2), image.rows/4 );
-			dst[1] = Point2f( dst[0].x + added, dst[0].y );
-			dst[2] = Point2f( dst[0].x, dst[0].y + added );
+			Point2f dst[3] = { Point2f(-0.1*image.cols, -0.1*image.rows),
+				Point2f( 1.1*image.cols, -0.1*image.rows ), Point2f( -0.1*image.cols, 1.1*image.rows ) };
+
+			// Randomize transformation
+			float scale_x = 1.0;//(80.f + (float)(rng.next()%21))/100.f;
+			float scale_y = 1.0;//(80.f + (float)(rng.next()%21))/100.f;
+			float angle = 1.57;//(rng.next()%360)*M_PI/180.f;
+			float translation_x = (int)(rng.next()%image.cols*1/2) - image.cols/4;
+			float translation_y = (int)(rng.next()%image.cols*1/2) - image.rows/4;
+			
+			// Save object transformation
+			if (i == selected_object)
+				description = description + shapes[current] + ";" + toString(scale_x) + ";" + toString(scale_y) + ";" +
+					toString(angle) + ";" + toString(translation_x) + ";" + toString(translation_y) + ";";
+			
+			// Handle scale
+			dst[0].x += (1.0f - scale_x) * image.cols * 3/4;
+			dst[0].y += (1.0f - scale_y) * image.rows * 3/4;
+			dst[1].x -= (1.0f - scale_x) * image.cols * 3/4;
+			dst[1].y += (1.0f - scale_y) * image.rows * 3/4;
+			dst[2].x += (1.0f - scale_x) * image.cols * 3/4;
+			dst[2].y -= (1.0f - scale_y) * image.rows * 3/4;
+			
+			// Save location
+			if (i == selected_object)
+				description = description + toString(dst[0].x + translation_x) + ";" + toString(dst[0].y + translation_y) + ";";
+
+			// Handle rotation - substract pivot point => rotate => add pivot point
+			for (int j = 0; j < 3; ++j)
+			{
+				dst[j].x -= image.cols/2;
+				dst[j].y -= image.rows/2;
+			}
+			for (int j = 0; j < 3; ++j)
+			{
+				float p_x = cos(angle)*dst[j].x - sin(angle)*dst[j].y;
+				float p_y = sin(angle)*dst[j].x + cos(angle)*dst[j].y;
+				dst[j].x = p_x;
+				dst[j].y = p_y;
+			}
+			for (int j = 0; j < 3; ++j)
+			{
+				dst[j].x += image.cols/2;
+				dst[j].y += image.rows/2;
+			}
+			
+			// Handle translation
+			dst[0].x += translation_x;
+			dst[0].y += translation_y;
+			dst[1].x += translation_x;
+			dst[1].y += translation_y;
+			dst[2].x += translation_x;
+			dst[2].y += translation_y;
 
 			Mat transform = cv::getAffineTransform(src, dst);
 			Mat object_warped;
@@ -635,11 +702,10 @@ public:
 			objects.push_back( object_warped );
 		}
 
-		// Create the mask and randomize mask id
+		// Create the mask
 		Mat mask;
 		mask.create( height, width, CV_8UC1 );
 		mask.setTo( Scalar(0) );
-		unsigned int selected_object = objects.size()-1;
 
 		// Write our objects into the image, taking care to pick the one on top
 		Point p;
@@ -682,6 +748,10 @@ public:
 			texture = imread( textures[current] );
 			object_textures.push_back( texture );
 			texture_ids.push_back( current );
+
+			// Save our texture
+			if ( i == selected_object )
+				description = textures[current] + ";" + description;
 		}
 
 		// Finish creating our image by properly copying textures into their designated places
@@ -697,7 +767,7 @@ public:
 			}
 
 		// Done, simply return the data
-		return std::pair< Mat, Mat >(image, mask); 
+		return Data(image, mask, description);
 	}
 };
 
@@ -714,12 +784,12 @@ int main( int argc, char** argv )
 	srand(time(NULL));
 
 	// Set totals: id_step * sizes * square_sizes * images
-	total = 15*3*5*100;
+	total = 15*4*5*100;
 
 	// Create tests for image size 512, 1024, 2048, 4096
 	int id = 0;
 	boost::thread_group threads;
-	for (int i = 2; i < 16; i*=2)
+	for (int i = 1; i < 16; i*=2)
 	{
 		// For each chosen size and object count test squares of 8, 16, 32, 64 and 128
 		for (int k = 8; k < 256; k*=2)
@@ -731,12 +801,13 @@ int main( int argc, char** argv )
 				int j = rand()%8 + 1;
 
 				// First generate the actual image
-				pair< Mat, Mat > data = generator.generateImage( 512*i, 512*i, j, rand() );
+				ImageGenerator::Data data = generator.generateImage( 512*i, 512*i, j, rand() );
 
 				// Then create a thread for it
 				sem.wait();
 				//std::cout << 512*i << " " << j << " " << k << " " << l << " started work...\n";
-				WorkerMats w( log_path, out_path, data.first, data.second, id, 512*i, j, k);
+				//std::cout << "MAIN " << data.description << endl;
+				WorkerMats w( log_path, out_path, data.image, data.mask, data.description, id, 512*i, j, k);
 				threads.create_thread( w );
 				id += 15;
 			}

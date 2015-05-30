@@ -984,20 +984,19 @@ int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask
 
 	// Load image
 	Mat img = _img.getMat();
+	Mat mask = _mask.getMat();
 	
 	// Load ground truth and output array
 	Mat& output_mask = _output_mask.getMatRef();
+	mask.copyTo( output_mask );
 
 	// Load and check the mask
-	Mat mask = _mask.getMat();
-	checkMask( img, mask );
+	checkMask( img, output_mask );
 
 	// Perform grabcut
-	cvtColor( img, img, COLOR_RGB2GRAY );
-	int total_iters = perform_grabcut_on<uchar, double, 1>(img, mask, iterCount, epsilon);
+	int total_iters = perform_grabcut_on<uchar, double, 3>(img, output_mask, iterCount, epsilon);
 
 	// Save and return output
-	mask.copyTo(output_mask);
 	return total_iters;
 }
 
