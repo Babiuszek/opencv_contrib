@@ -643,9 +643,9 @@ public:
 				Point2f( 1.1*image.cols, -0.1*image.rows ), Point2f( -0.1*image.cols, 1.1*image.rows ) };
 
 			// Randomize transformation
-			float scale_x = 1.0;//(80.f + (float)(rng.next()%21))/100.f;
-			float scale_y = 1.0;//(80.f + (float)(rng.next()%21))/100.f;
-			float angle = 1.57;//(rng.next()%360)*M_PI/180.f;
+			float scale_x = (80.f + (float)(rng.next()%21))/100.f;
+			float scale_y = (80.f + (float)(rng.next()%21))/100.f;
+			float angle = (rng.next()%360)*M_PI/180.f;
 			float translation_x = (int)(rng.next()%image.cols*1/2) - image.cols/4;
 			float translation_y = (int)(rng.next()%image.cols*1/2) - image.rows/4;
 			
