@@ -784,12 +784,12 @@ int main( int argc, char** argv )
 	srand(time(NULL));
 
 	// Set totals: id_step * sizes * square_sizes * images
-	total = 15*4*5*100;
+	total = 15*1*5*100;
 
 	// Create tests for image size 512, 1024, 2048, 4096
 	int id = 0;
 	boost::thread_group threads;
-	for (int i = 1; i < 16; i*=2)
+	for (int i = 8; i < 16; i*=2)
 	{
 		// For each chosen size and object count test squares of 8, 16, 32, 64 and 128
 		for (int k = 8; k < 256; k*=2)
