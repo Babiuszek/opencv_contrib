@@ -43,6 +43,7 @@
 #define __HOMOLOGY_GRABCUT_HPP__
 #ifdef __cplusplus
 
+#include <string>
 #include <opencv2/core.hpp>
 
 namespace cv
@@ -56,7 +57,7 @@ namespace cv
 
 	 */
 	CV_EXPORTS_W int one_step_grabcut(InputArray img, InputArray mask, OutputArray output_mask,
-		int iterCount=1, double epsilon=0.001);
+		InputArray key, std::string& toLog, int iterCount=1, double epsilon=0.001);
 
 	/** @brief Performs grabcut on shrunk image using given filters and mask.
 	
@@ -94,11 +95,14 @@ namespace cv
 	previous answer is lower than epsilon the algorythm ends.
 	 */
 	CV_EXPORTS_W int two_step_grabcut(InputArray img, InputArray mask, InputArray filters,
-		OutputArray output_mask, double& it_time1, double& it_time2, std::string& path,
+		OutputArray output_mask, InputArray key, std::string& toLog, std::string& path,
 		int pcaCount=2048, int iterCount=1, double epsilon=0.001, int by=10);
 
-	CV_EXPORTS int homology_grabcut(InputArray img, InputArray mask,
-		OutputArray output_mask, double& it_time1, double& it_time2,
+	/**
+	 */
+
+	CV_EXPORTS_W int homology_grabcut(InputArray img, InputArray mask,
+		OutputArray output_mask, InputArray key, std::string& toLog,
 		int IterCount=1, double epsilon=0.001, int by=10);
 	
 	/** @brief Constructs 13 Schmid filters storing them in CV_32FC(13) Mat bank

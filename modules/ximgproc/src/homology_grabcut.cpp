@@ -60,7 +60,7 @@ using namespace ml;
 namespace cv {
 
 #define FILTERS 13
-#define CHANNELS 14
+#define CHANNELS 17
 #define HOM_CHANNELS 10
 
 #define Vecf_f	Vec<float, FILTERS>
@@ -685,17 +685,21 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 				values[i] = 0.0;
 
 			// And calculate these values using the area from input image. We first calculate the means
+			int wwidth = 0;
+			int wheight = 0;
 			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
 			{
+				++wheight;
 				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
 				{
+					++wwidth;
 					Vecd_c color = input.at<Vecd_c>(p_i);
 					for (int i = 0; i < CHANNELS; i++)
 						values[i] += color.val[i];
 				}
 			}
 			for (int i = 0; i < CHANNELS; i++)
-				values[i] /= by*by;
+				values[i] /= wwidth*wheight;
 			
 			// Then calculate the standard deviations
 			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
@@ -708,7 +712,7 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 				}
 			}
 			for (int i = CHANNELS; i < 2*CHANNELS; i++)
-				values[i] = sqrt(values[i] / (by*by));
+				values[i] = sqrt(values[i] / (wwidth*wheight));
 		}
 	}
 	
@@ -889,15 +893,104 @@ Mat* grey_and_expand( const Mat& input )
 			// 2) (0.299*R + 0.587*G + 0.114*B) <- Suggested by W3C Working Draft
 			// 3) sqrt( 0.299*R^2 + 0.587*G^2 + 0.114*B^2 ) <- Photoshop does something close to this
 			// Calculate grayscale value, here we are using 3rd formula
-			vo[0] = sqrt( 0.299*vi[0]*vi[0] + 0.587*vi[1]*vi[1] + 0.114*vi[2]*vi[2] );
+			vo[3] = sqrt( 0.299*vi[0]*vi[0] + 0.587*vi[1]*vi[1] + 0.114*vi[2]*vi[2] );
 			// Set all other values to the calculated value
-			for (int i = 1; i < CHANNELS; i++)
+			for (int i = 4; i < CHANNELS; i++)
 				vo[i] = vo[0];
 		}
 	}
 
 	// All done, return the answer
 	return output;
+}
+
+// Functions to update toLog strings
+std::string toString(float value)
+{
+	// Init
+	std::string Ans = "";
+	bool negative = value < 0.f ? true : false;
+	char c;
+
+	if (negative)
+		value = -value;
+
+	// Integer
+	int t = (int)floor(value);
+	if (t == 0)
+		Ans = Ans + "0";
+	value -= t;
+	while (t > 0)
+	{
+		c = 48 + t % 10;
+		Ans = c + Ans;
+		t /= 10;
+	}
+
+	if (value > 0)
+		Ans = Ans + ".";
+	
+	if (negative)
+		Ans = "-" + Ans;
+
+	// Fraction
+	std::string fraction = "";
+	t = (int)floor(value*1000000);
+	while (t > 0)
+	{
+		c = 48 + t % 10;
+		fraction = c + fraction;
+		t /= 10;
+	}
+	// Done
+	return Ans + fraction;
+}
+double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseLevel, std::string& toLog)
+{
+	int tp = 0;
+	int tn = 0;
+	int fp = 0;
+	int fn = 0;
+	int wv = 0;
+	for (int i = 0; i < output.rows; i++)
+		for (int j = 0; j < output.cols; j++)
+		{
+			int value = (int)output.at<uchar>(i, j);
+			int answer = (int)key.at<uchar>(i, j);
+			
+			if (value == GC_BGD || value == GC_PR_BGD)
+				value = GC_PR_BGD;
+			else value = GC_PR_FGD;
+			if (answer == GC_BGD || answer == GC_PR_BGD)
+				answer = GC_PR_BGD;
+			else answer = GC_PR_FGD;
+
+			if (value == GC_PR_FGD && answer == GC_PR_FGD)
+				tp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_BGD)
+				tn++;
+			else if (value == GC_PR_FGD && answer == GC_PR_BGD)
+				fp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_FGD)
+				fn++;
+			else
+			{
+				wv++;
+				if (verboseLevel > 2)
+					std::cout << "Wrong value " << value << " or answer " << answer << "\n";
+			}
+		}
+	double precision = (double)(tp)/(tp+fp);
+	double recall = (double)(tp)/(tp+fn);
+	double answer = 2.0/(1.0/precision + 1.0/recall);
+	//double answer = (double)(tp+tn)/(tp+tn+fp+fn);
+	if (verboseLevel > 0)
+		;//toLog = toLog + ";" + toString((float)answer);
+	if (verboseLevel > 1)
+	{
+		toLog = toLog + ";" + toString(tp) + ";" + toString(tn) + ";" + toString(fp) + ";" + toString(fn) + ";";
+	}
+	return answer;
 }
 
 template <typename ImgType, typename DataType, int DataLength>
@@ -972,7 +1065,7 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 }
 
 int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask,
-		int iterCount, double epsilon)
+		InputArray _key, std::string& toLog, int iterCount, double epsilon)
 {
 	const int by = 10;
 
@@ -985,6 +1078,7 @@ int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask
 	// Load image
 	Mat img = _img.getMat();
 	Mat mask = _mask.getMat();
+	Mat key = _key.getMat();
 	
 	// Load ground truth and output array
 	Mat& output_mask = _output_mask.getMatRef();
@@ -993,15 +1087,34 @@ int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask
 	// Load and check the mask
 	checkMask( img, output_mask );
 
+	// Fill the log file with proper messages, since one-step does not perform them
+	toLog = toLog + "N/A" + ";"; // Expansion
+	toLog = toLog + "N/A" + ";"; // Convolution
+	toLog = toLog + "N/A" + ";"; // Shrink
+	toLog = toLog + "N/A" + ";"; // Iteration Time 1
+	toLog = toLog + "N/A" + ";"; // Enlarge
+	toLog = toLog + "N/A" + ";" + "N/A" + ";" + "N/A" + ";" + "N/A" + ";"; // Accuracy check after enlarge
+
 	// Perform grabcut
-	int total_iters = perform_grabcut_on<uchar, double, 3>(img, output_mask, iterCount, epsilon);
+	int total_iters = 0;
+	for (int i = 0; i < iterCount; ++i)
+	{
+		clock_t start = clock();
+		total_iters += perform_grabcut_on<uchar, double, 3>(img, output_mask, 1, epsilon);
+		clock_t finish = clock();
+		double it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+
+		// Save time and accuracy
+		toLog = toLog + toString( it_time2 ) + ";";
+		calculateAccuracy( output_mask, key, 2, toLog );
+	}
 
 	// Save and return output
 	return total_iters;
 }
 
 int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters, 
-		OutputArray _output_mask, double& it_time1, double& it_time2, std::string& path,
+		OutputArray _output_mask, InputArray _key, std::string& toLog, std::string& path,
 		int pcaCount, int iterCount, double epsilon, int by )
 {	
 	// Standard null checking procedure
@@ -1014,14 +1127,19 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	Mat img = _img.getMat();
 	Mat mask = _mask.getMat();
 	Mat filters = _filters.getMat();
+	Mat key = _key.getMat();
 	Mat& output_mask = _output_mask.getMatRef();
 	checkMask( img, mask );
 	mask.copyTo(output_mask); // Required for expandedShrunkMask function between grabcuts
 
 	// Initialization
-	Mat* img_cg = grey_and_expand( img ); //14 CHANNELS Dimensional Grey
+	clock_t start = clock();
+	Mat* img_cg = grey_and_expand( img ); //17 CHANNELS Dimensional Grey
+	clock_t finish = clock();
+	double expansion_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 
 	// Applying filters
+	start = clock();
 	Mat img_cg_v[CHANNELS]; // Vector of values for filter2D usage
 	Mat filters_v[FILTERS]; // Vector of filters for filter2D usage
 	split( *img_cg, img_cg_v );
@@ -1030,38 +1148,63 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	{
 		// Apply the filter. Default values are:
 		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
-		filter2D( img_cg_v[i+1], img_cg_v[i+1], CV_64F, filters_v[i] );
+		filter2D( img_cg_v[i+4], img_cg_v[i+4], CV_64F, filters_v[i] );
 	}
 	// Build back our final solution
 	merge( img_cg_v, CHANNELS, *img_cg );
+	finish = clock();
+	double convolution_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	toLog = toLog + toString( convolution_time ) + ";";
 	
 	// Shrink the image and mask to get 28 channels
+	start = clock();
 	Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
+	finish = clock();
+	double shrink_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	toLog = toLog + toString( shrink_time ) + ";";
 	
 	// Perform grabcut and save its time for future references
-	clock_t start = clock();
-	int total_iters = perform_grabcut_on< double, double, 2*CHANNELS >( *img_dc, mask, iterCount, epsilon );
-	clock_t finish = clock();
-	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	int total_iters = 0;
+	start = clock();
+	for (int i = 0; i < iterCount; ++i)
+		total_iters += perform_grabcut_on< double, double, 2*CHANNELS >( *img_dc, mask, 1, epsilon );
+	finish = clock();
+	double it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	toLog = toLog + toString( it_time1 ) + ";";
 
 	// Resize mask back to original size
+	start = clock();
 	expandShrunkMat( mask, output_mask, by );
-	//imwrite( path + "e.png", out_mask );
+	finish = clock();
+	double enlarge_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	toLog = toLog + toString( enlarge_time ) + ";";
+
+	// Save accuracy of enlarged image
+	calculateAccuracy( output_mask, key, 2, toLog );
 
 	// Perform grabcut and save its time for future references
-	cvtColor(img, img, COLOR_RGB2GRAY);
-	start = clock();
-	total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount, epsilon );
-	finish = clock();
-	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
-	
+	for (int i = 0; i < iterCount; ++i)
+	{
+		start = clock();
+		total_iters += perform_grabcut_on< uchar, double, 3 >( img, output_mask, 1, epsilon );
+		finish = clock();
+		double it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+		
+		// Save time and accuracy
+		toLog = toLog + toString( it_time2 ) + ";";
+		calculateAccuracy( output_mask, key, 2, toLog );
+	}
+	// Fill blanks in the other half
+	for (int i = 0; i < iterCount; ++i)
+		toLog = toLog + "0.0;0;0;0;0;";
+
 	delete img_cg;
 	delete img_dc;
 	return total_iters;
 }
 
 int homology_grabcut(InputArray _img, InputArray _mask,
-		OutputArray _output_mask, double& it_time1, double& it_time2,
+		OutputArray _output_mask, InputArray _key, std::string& toLog,
 		int iterCount, double epsilon, int by)
 {
 	// Standard null checking procedure
@@ -1074,27 +1217,53 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	if (1 < img.channels())
 		cvtColor(img, img, COLOR_RGB2GRAY);
 	Mat mask = _mask.getMat();
+	Mat key = _key.getMat();
 	Mat& output_mask = _output_mask.getMatRef();
 	checkMask( img, mask );
 	
+	// Fill the log file with proper messages, since one-step does not perform them
+	toLog = toLog + "N/A" + ";"; // Expansion
+	toLog = toLog + "N/A" + ";"; // Convolution
+
 	// Shrink the image and mask to get 10 metric channels
+	clock_t start = clock();
 	Mat* hom_img = shrink_homology( img, mask, by ); // Image double channels (shrunk)
+	clock_t finish = clock();
+	double shrink_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	toLog = toLog + toString( shrink_time ) + ";";
 	
 	// Perform homology grabcut and save its time for future references
-	clock_t start = clock();
-	int total_iters = perform_grabcut_on< double, double, HOM_CHANNELS>( *hom_img, mask, iterCount/2, epsilon );
-	clock_t finish = clock();
-	it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	int total_iters;
+	start = clock();
+	for (int i = 0; i < iterCount; ++i)
+		total_iters += perform_grabcut_on< double, double, HOM_CHANNELS>( *hom_img, mask, 1, epsilon );
+	finish = clock();
+	double it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	toLog = toLog + toString( it_time1 ) + ";";
 	delete hom_img;
 	
 	// Resize the mask and perform normal grabcut
+	start = clock();
 	expandShrunkMat( mask, output_mask, by );
+	finish = clock();
+	double enlarge_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	toLog = toLog + toString( enlarge_time ) + ";";
 	
 	// Perform grabcut and save its time for future references
-	start = clock();
-	total_iters += perform_grabcut_on< uchar, double, 1 >( img, output_mask, iterCount/2, epsilon );
-	finish = clock();
-	it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	for (int i = 0; i < iterCount; ++i)
+	{
+		start = clock();
+		total_iters += perform_grabcut_on< uchar, double, 3 >( img, output_mask, 1, epsilon );
+		finish = clock();
+		double it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
+		
+		// Save time and accuracy
+		toLog = toLog + toString( it_time2 ) + ";";
+		calculateAccuracy( output_mask, key, 2, toLog );
+	}
+	// Fill blanks in the other half
+	for (int i = 0; i < iterCount; ++i)
+		toLog = toLog + "0.0;0;0;0;0;";
 
 	return total_iters;
 }

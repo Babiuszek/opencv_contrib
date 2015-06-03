@@ -213,6 +213,7 @@ double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseL
 	toLog = toLog + "\n";
 	return answer;
 }
+
 double calculateFMeasure(const cv::Mat& output, const cv::Mat& key, int verboseLevel)
 {
 	int tp = 0;
@@ -258,23 +259,23 @@ double calculateFMeasure(const cv::Mat& output, const cv::Mat& key, int verboseL
 
 void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& filters,
 	cv::Mat& mask, double skelOccup, int iterCount, double epsilon, int verboseLevel, int mode,
-	string& toLog, double& accuracy, double& total_time, double& it_time1, double& it_time2, int& total_iters,
+	string& toLog, double& accuracy, double& total_time, int& total_iters,
 	string test, int by)
 {
 	// Perform grabcut and measure it's time and number of iterations
 	clock_t start = clock();
 
 	if (mode == ONE_STEP) {
-		total_iters = one_step_grabcut( image, image_mask, mask, iterCount, epsilon);
+		total_iters = one_step_grabcut( image, image_mask, mask, image_mask, toLog, iterCount, epsilon);
 	}
 	else if (mode == TWO_STEP) {
 		total_iters = two_step_grabcut( image, image_mask, filters,
-						mask, it_time1, it_time2, test,
+						mask, image_mask, toLog, test,
 						2048, iterCount/2, epsilon, by );
 	}
 	else if (mode == HOMOLOGY) {
 		total_iters = homology_grabcut( image, image_mask,
-						mask, it_time1, it_time2,
+						mask, image_mask, toLog,
 						iterCount/2, epsilon, by );
 	}
 
@@ -412,7 +413,7 @@ public:
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
 				nextIter(image, image_mask, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
-					toLog, accuracy, total_time, it_time1, it_time2, total_iters,
+					toLog, accuracy, total_time, total_iters,
 					out_path + "_t/" + original + "_TWO_so" + toString((float)skelOccup/10.0), 10);
 				swapToValues( mask );
 
@@ -526,9 +527,11 @@ public:
 				cout << "[" << setprecision(2) << current_progress*100.f << "%] - Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
 
 				// Perform iteration
+				toLog += toString(scale) + ";" + toString(objects) + ";" + description +
+						toString(by) + ";" + toString(mode) + ";";
 				nextIter(image, image_mask, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
-					toLog, accuracy, total_time, it_time1, it_time2, total_iters,
+					toLog, accuracy, total_time, total_iters,
 					out_path + "_t/" + original + "_TWO_so" + toString((float)skelOccup/10.0), by);
 				swapToValues( mask );
 
@@ -538,7 +541,8 @@ public:
 				//imwrite( output_file, mask );
 
 				// Update log string
-				std::string original_size = toString(image.cols) + "x" + toString(image.rows);
+				toLog += toString((float)total_time) + "\n";
+				/*std::string original_size = toString(image.cols) + "x" + toString(image.rows);
 				if (mode == ONE_STEP)
 				{
 					toLog += toString(scale) + ";" + toString(objects) + ";" + description +
@@ -552,7 +556,7 @@ public:
 						toString(by) + ";" + toString(mode) + ";" +
 						toString((float)total_time) + ";" + toString((float)it_time1) + ";" + toString((float)it_time2);
 					calculateAccuracy( mask, image_mask, 2, toLog );
-				}
+				}*/
 				
 				++id;
 				{
