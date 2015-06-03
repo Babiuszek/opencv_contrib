@@ -1067,8 +1067,6 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask,
 		InputArray _key, std::string& toLog, int iterCount, double epsilon)
 {
-	const int by = 10;
-
 	// Standard null checking procedure
 	if( _img.empty() )
 		CV_Error( CV_StsBadArg, "image is empty" );
@@ -1233,7 +1231,7 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	toLog = toLog + toString( shrink_time ) + ";";
 	
 	// Perform homology grabcut and save its time for future references
-	int total_iters;
+	int total_iters = 0;
 	start = clock();
 	for (int i = 0; i < iterCount; ++i)
 		total_iters += perform_grabcut_on< double, double, HOM_CHANNELS>( *hom_img, mask, 1, epsilon );
