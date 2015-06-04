@@ -1065,8 +1065,6 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask,
 		InputArray _key, std::string& toLog, int iterCount, double epsilon)
 {
-	const int by = 10;
-
 	// Standard null checking procedure
 	if( _img.empty() )
 		CV_Error( CV_StsBadArg, "image is empty" );
