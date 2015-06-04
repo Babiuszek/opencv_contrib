@@ -469,18 +469,18 @@ static void initGMMs( const Mat& img, const Mat& mask,
 	// Anti-crash quick-fix, random pixels are moved if too little are picked for either FGD or BGD
 	if (bgdSamples.size() <= 5)
 	{
-		RNG rng(0);
-		for (int i = 0; i < 10; ++i)
+		RNG rng(rand());
+		for (int i = 0; i < 6; ++i)
 		{
 			int it = rng.next()%fgdSamples.size();
 			bgdSamples.push_back( fgdSamples[it] );
 			fgdSamples.erase( fgdSamples.begin() + it );
 		}
 	}
-	if (fgdSamples.size() <= 5)
+	else if (fgdSamples.size() <= 5)
 	{
-		RNG rng(0);
-		for (int i = 0; i < 10; ++i)
+		RNG rng(rand());
+		for (int i = 0; i < 6; ++i)
 		{
 			int it = rng.next()%bgdSamples.size();
 			fgdSamples.push_back( bgdSamples[it] );
@@ -778,18 +778,20 @@ Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
 			std::vector< std::pair< double, double > > diagram = IPH();
 			
 			// We then create the abs difference vector needed for further calculations
+			// We skip the last one, as it's always (val, INF)
 			std::vector< double > hom_diffs;
 			for (int i = 0; i < diagram.size()-1; ++i)
 				hom_diffs.push_back( abs( diagram[i].second - diagram[i].first ) );
-			hom_diffs.push_back( abs( 255 - diagram[diagram.size()-1].first ) );
-
-			for (int i = 0; i < diagram.size(); ++i)
+			// In case of being empty we simply set everything to 0.0 and continue
+			if (hom_diffs.size() == 0)
 			{
-				if (!std::isfinite( hom_diffs[i] ))
-					std::cout << "hom_diffs " << i << "/" << hom_diffs.size()-1 << " is INF!\n";
-				if (std::isnan( hom_diffs[i] ))
-					std::cout << "hom_diffs " << i << "/" << hom_diffs.size()-1 << " is NAN!\n";
+				for (int i = 0; i < HOM_CHANNELS; ++i)
+					values[i] = 0.0;
+				continue;
 			}
+
+			// Sort the vector so our job will be easier
+			std::sort( hom_diffs.begin(), hom_diffs.end() );
 			
 			// We use the abs difference on each of our 10 metrics
 			values[0] = hom_diffs[0]; //min
@@ -813,14 +815,6 @@ Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
 			for (int i = 0; i < hom_diffs.size(); ++i)
 				values[3] += (hom_diffs[i] - values[2])*(hom_diffs[i] - values[2]);
 			values[3] /= hom_diffs.size(); // standard deviation
-			
-			/*//std::cout << "\n";
-			for (int i = 0; i < diagram.size(); i++)
-				std::cout << "<" << diagram[i].first << ", " << diagram[i].second << ">, ";
-			std::cout << "\n";
-			for (int i = 0; i < HOM_CHANNELS; i++)
-				std::cout << output->at< Vec<double, HOM_CHANNELS> >(p_o)[i] << " ";
-			std::cout << "\n\n";*/
 		}
 	}
 
@@ -889,6 +883,10 @@ Mat* grey_and_expand( const Mat& input )
 			const Vec3b vi = input.at<Vec3b>(p);
 			Vecd_c& vo = output->at<Vecd_c>(p);
 			
+			// Writing first three channels into new matrix
+			for (int i = 0; i < 3; ++i)
+				vo[i] = vi[i];
+
 			// 1) (0.2126*R + 0.7152*G + 0.0722*B) <- Relative luminance according to wiki
 			// 2) (0.299*R + 0.587*G + 0.114*B) <- Suggested by W3C Working Draft
 			// 3) sqrt( 0.299*R^2 + 0.587*G^2 + 0.114*B^2 ) <- Photoshop does something close to this
@@ -896,7 +894,7 @@ Mat* grey_and_expand( const Mat& input )
 			vo[3] = sqrt( 0.299*vi[0]*vi[0] + 0.587*vi[1]*vi[1] + 0.114*vi[2]*vi[2] );
 			// Set all other values to the calculated value
 			for (int i = 4; i < CHANNELS; i++)
-				vo[i] = vo[0];
+				vo[i] = vo[3];
 		}
 	}
 
@@ -1088,12 +1086,12 @@ int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask
 	checkMask( img, output_mask );
 
 	// Fill the log file with proper messages, since one-step does not perform them
-	toLog = toLog + "N/A" + ";"; // Expansion
-	toLog = toLog + "N/A" + ";"; // Convolution
-	toLog = toLog + "N/A" + ";"; // Shrink
-	toLog = toLog + "N/A" + ";"; // Iteration Time 1
-	toLog = toLog + "N/A" + ";"; // Enlarge
-	toLog = toLog + "N/A" + ";" + "N/A" + ";" + "N/A" + ";" + "N/A" + ";"; // Accuracy check after enlarge
+	toLog = toLog + "NA" + ";"; // Expansion
+	toLog = toLog + "NA" + ";"; // Convolution
+	toLog = toLog + "NA" + ";"; // Shrink
+	toLog = toLog + "NA" + ";"; // Iteration Time 1
+	toLog = toLog + "NA" + ";"; // Enlarge
+	toLog = toLog + "NA" + ";" + "NA" + ";" + "NA" + ";" + "NA" + ";"; // Accuracy check after enlarge
 
 	// Perform grabcut
 	int total_iters = 0;
@@ -1137,6 +1135,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	Mat* img_cg = grey_and_expand( img ); //17 CHANNELS Dimensional Grey
 	clock_t finish = clock();
 	double expansion_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
+	toLog = toLog + toString( expansion_time ) + ";";
 
 	// Applying filters
 	start = clock();
@@ -1156,7 +1155,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	double convolution_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 	toLog = toLog + toString( convolution_time ) + ";";
 	
-	// Shrink the image and mask to get 28 channels
+	// Shrink the image and mask to get 34 channels
 	start = clock();
 	Mat* img_dc = shrink( *img_cg, mask, by ); // Image double channels (shrunk)
 	finish = clock();
@@ -1196,7 +1195,7 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	}
 	// Fill blanks in the other half
 	for (int i = 0; i < iterCount; ++i)
-		toLog = toLog + "0.0;0;0;0;0;";
+		toLog = toLog + "NA;NA;NA;NA;NA;";
 
 	delete img_cg;
 	delete img_dc;
@@ -1222,8 +1221,8 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	checkMask( img, mask );
 	
 	// Fill the log file with proper messages, since one-step does not perform them
-	toLog = toLog + "N/A" + ";"; // Expansion
-	toLog = toLog + "N/A" + ";"; // Convolution
+	toLog = toLog + "NA" + ";"; // Expansion
+	toLog = toLog + "NA" + ";"; // Convolution
 
 	// Shrink the image and mask to get 10 metric channels
 	clock_t start = clock();
@@ -1233,7 +1232,7 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	toLog = toLog + toString( shrink_time ) + ";";
 	
 	// Perform homology grabcut and save its time for future references
-	int total_iters;
+	int total_iters = 0;
 	start = clock();
 	for (int i = 0; i < iterCount; ++i)
 		total_iters += perform_grabcut_on< double, double, HOM_CHANNELS>( *hom_img, mask, 1, epsilon );
@@ -1248,6 +1247,7 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	finish = clock();
 	double enlarge_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 	toLog = toLog + toString( enlarge_time ) + ";";
+	calculateAccuracy( output_mask, key, 2, toLog );
 	
 	// Perform grabcut and save its time for future references
 	for (int i = 0; i < iterCount; ++i)
@@ -1263,7 +1263,7 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 	}
 	// Fill blanks in the other half
 	for (int i = 0; i < iterCount; ++i)
-		toLog = toLog + "0.0;0;0;0;0;";
+		toLog = toLog + "NA;NA;NA;NA;NA;";
 
 	return total_iters;
 }
