@@ -643,6 +643,95 @@ static void constructGCGraph( const Mat& img, const Mat& mask,
 }
 //==========================[ End of multi-dimensional functions ]=============================
 
+// Functions to update toLog strings
+std::string toString(float value)
+{
+	// Init
+	std::string Ans = "";
+	bool negative = value < 0.f ? true : false;
+	char c;
+
+	if (negative)
+		value = -value;
+
+	// Integer
+	int t = (int)floor(value);
+	if (t == 0)
+		Ans = Ans + "0";
+	value -= t;
+	while (t > 0)
+	{
+		c = 48 + t % 10;
+		Ans = c + Ans;
+		t /= 10;
+	}
+
+	if (value > 0)
+		Ans = Ans + ".";
+	
+	if (negative)
+		Ans = "-" + Ans;
+
+	// Fraction
+	std::string fraction = "";
+	t = (int)floor(value*1000000);
+	while (t > 0)
+	{
+		c = 48 + t % 10;
+		fraction = c + fraction;
+		t /= 10;
+	}
+	// Done
+	return Ans + fraction;
+}
+double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseLevel, std::string& toLog)
+{
+	int tp = 0;
+	int tn = 0;
+	int fp = 0;
+	int fn = 0;
+	int wv = 0;
+	for (int i = 0; i < output.rows; i++)
+		for (int j = 0; j < output.cols; j++)
+		{
+			int value = (int)output.at<uchar>(i, j);
+			int answer = (int)key.at<uchar>(i, j);
+			
+			if (value == GC_BGD || value == GC_PR_BGD)
+				value = GC_PR_BGD;
+			else value = GC_PR_FGD;
+			if (answer == GC_BGD || answer == GC_PR_BGD)
+				answer = GC_PR_BGD;
+			else answer = GC_PR_FGD;
+
+			if (value == GC_PR_FGD && answer == GC_PR_FGD)
+				tp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_BGD)
+				tn++;
+			else if (value == GC_PR_FGD && answer == GC_PR_BGD)
+				fp++;
+			else if (value == GC_PR_BGD && answer == GC_PR_FGD)
+				fn++;
+			else
+			{
+				wv++;
+				if (verboseLevel > 2)
+					std::cout << "Wrong value " << value << " or answer " << answer << "\n";
+			}
+		}
+	double precision = (double)(tp)/(tp+fp);
+	double recall = (double)(tp)/(tp+fn);
+	double answer = 2.0/(1.0/precision + 1.0/recall);
+	//double answer = (double)(tp+tn)/(tp+tn+fp+fn);
+	if (verboseLevel > 0)
+		;//toLog = toLog + ";" + toString((float)answer);
+	if (verboseLevel > 1)
+	{
+		toLog = toLog + toString(tp) + ";" + toString(tn) + ";" + toString(fp) + ";" + toString(fn) + ";";
+	}
+	return answer;
+}
+
 /*
   Estimate segmentation using MaxFlow algorithm
 */
@@ -745,10 +834,13 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 }
 
 // Homology version of shrink
-Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
+Mat* shrink_homology( const Mat& input, Mat& mask, const int by, std::string& toLog )
 {
 	// Create our shrunk Material
 	Mat* output = new Mat( input.rows/by, input.cols/by, CV_64FC(HOM_CHANNELS) );
+
+	// Variables to save the average vector length
+	int vector_sum = 0;
 
 	// For each point in ouput image...
 	Point p_i; // Input iterator
@@ -782,6 +874,10 @@ Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
 			std::vector< double > hom_diffs;
 			for (int i = 0; i < diagram.size()-1; ++i)
 				hom_diffs.push_back( abs( diagram[i].second - diagram[i].first ) );
+			
+			// Save data about our vector
+			vector_sum += hom_diffs.size();
+
 			// In case of being empty we simply set everything to 0.0 and continue
 			if (hom_diffs.size() == 0)
 			{
@@ -817,6 +913,9 @@ Mat* shrink_homology( const Mat& input, Mat& mask, const int by )
 			values[3] /= hom_diffs.size(); // standard deviation
 		}
 	}
+
+	// Save the average length of our vector
+	toLog = toLog + toString( (double)vector_sum / (output->rows * output->cols) ) + ";";
 
 	// Now time to shrink the mask
 	Mat out_mask;
@@ -900,95 +999,6 @@ Mat* grey_and_expand( const Mat& input )
 
 	// All done, return the answer
 	return output;
-}
-
-// Functions to update toLog strings
-std::string toString(float value)
-{
-	// Init
-	std::string Ans = "";
-	bool negative = value < 0.f ? true : false;
-	char c;
-
-	if (negative)
-		value = -value;
-
-	// Integer
-	int t = (int)floor(value);
-	if (t == 0)
-		Ans = Ans + "0";
-	value -= t;
-	while (t > 0)
-	{
-		c = 48 + t % 10;
-		Ans = c + Ans;
-		t /= 10;
-	}
-
-	if (value > 0)
-		Ans = Ans + ".";
-	
-	if (negative)
-		Ans = "-" + Ans;
-
-	// Fraction
-	std::string fraction = "";
-	t = (int)floor(value*1000000);
-	while (t > 0)
-	{
-		c = 48 + t % 10;
-		fraction = c + fraction;
-		t /= 10;
-	}
-	// Done
-	return Ans + fraction;
-}
-double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseLevel, std::string& toLog)
-{
-	int tp = 0;
-	int tn = 0;
-	int fp = 0;
-	int fn = 0;
-	int wv = 0;
-	for (int i = 0; i < output.rows; i++)
-		for (int j = 0; j < output.cols; j++)
-		{
-			int value = (int)output.at<uchar>(i, j);
-			int answer = (int)key.at<uchar>(i, j);
-			
-			if (value == GC_BGD || value == GC_PR_BGD)
-				value = GC_PR_BGD;
-			else value = GC_PR_FGD;
-			if (answer == GC_BGD || answer == GC_PR_BGD)
-				answer = GC_PR_BGD;
-			else answer = GC_PR_FGD;
-
-			if (value == GC_PR_FGD && answer == GC_PR_FGD)
-				tp++;
-			else if (value == GC_PR_BGD && answer == GC_PR_BGD)
-				tn++;
-			else if (value == GC_PR_FGD && answer == GC_PR_BGD)
-				fp++;
-			else if (value == GC_PR_BGD && answer == GC_PR_FGD)
-				fn++;
-			else
-			{
-				wv++;
-				if (verboseLevel > 2)
-					std::cout << "Wrong value " << value << " or answer " << answer << "\n";
-			}
-		}
-	double precision = (double)(tp)/(tp+fp);
-	double recall = (double)(tp)/(tp+fn);
-	double answer = 2.0/(1.0/precision + 1.0/recall);
-	//double answer = (double)(tp+tn)/(tp+tn+fp+fn);
-	if (verboseLevel > 0)
-		;//toLog = toLog + ";" + toString((float)answer);
-	if (verboseLevel > 1)
-	{
-		toLog = toLog + ";" + toString(tp) + ";" + toString(tn) + ";" + toString(fp) + ";" + toString(fn) + ";";
-	}
-	return answer;
 }
 
 template <typename ImgType, typename DataType, int DataLength>
@@ -1086,9 +1096,10 @@ int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask
 	// Fill the log file with proper messages, since one-step does not perform them
 	toLog = toLog + "NA" + ";"; // Expansion
 	toLog = toLog + "NA" + ";"; // Convolution
-	toLog = toLog + "NA" + ";"; // Shrink
+	toLog = toLog + "NA" + ";"; // Homology vector length
+	toLog = toLog + "NA" + ";"; // Shrinkage
 	toLog = toLog + "NA" + ";"; // Iteration Time 1
-	toLog = toLog + "NA" + ";"; // Enlarge
+	toLog = toLog + "NA" + ";"; // Enlargement
 	toLog = toLog + "NA" + ";" + "NA" + ";" + "NA" + ";" + "NA" + ";"; // Accuracy check after enlarge
 
 	// Perform grabcut
@@ -1152,6 +1163,9 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	finish = clock();
 	double convolution_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 	toLog = toLog + toString( convolution_time ) + ";";
+
+	// Homology vector length
+	toLog = toLog + "NA;";
 	
 	// Shrink the image and mask to get 34 channels
 	start = clock();
@@ -1224,7 +1238,7 @@ int homology_grabcut(InputArray _img, InputArray _mask,
 
 	// Shrink the image and mask to get 10 metric channels
 	clock_t start = clock();
-	Mat* hom_img = shrink_homology( img, mask, by ); // Image double channels (shrunk)
+	Mat* hom_img = shrink_homology( img, mask, by, toLog ); // Image double channels (shrunk)
 	clock_t finish = clock();
 	double shrink_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 	toLog = toLog + toString( shrink_time ) + ";";

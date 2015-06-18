@@ -257,7 +257,7 @@ double calculateFMeasure(const cv::Mat& output, const cv::Mat& key, int verboseL
 	return answer;
 }
 
-void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& filters,
+void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& key, const cv::Mat& filters,
 	cv::Mat& mask, double skelOccup, int iterCount, double epsilon, int verboseLevel, int mode,
 	string& toLog, double& accuracy, double& total_time, int& total_iters,
 	string test, int by)
@@ -266,16 +266,16 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& fi
 	clock_t start = clock();
 
 	if (mode == ONE_STEP) {
-		total_iters = one_step_grabcut( image, image_mask, mask, image_mask, toLog, iterCount, epsilon);
+		total_iters = one_step_grabcut( image, image_mask, mask, key, toLog, iterCount, epsilon);
 	}
 	else if (mode == TWO_STEP) {
 		total_iters = two_step_grabcut( image, image_mask, filters,
-						mask, image_mask, toLog, test,
+						mask, key, toLog, test,
 						2048, iterCount/2, epsilon, by );
 	}
 	else if (mode == HOMOLOGY) {
 		total_iters = homology_grabcut( image, image_mask,
-						mask, image_mask, toLog,
+						mask, key, toLog,
 						iterCount/2, epsilon, by );
 	}
 
@@ -482,6 +482,10 @@ public:
 		int mask_count = countNonZero( image_mask );
 		swapToInput( image_mask );
 
+		// Create key for testing
+		cv::Mat key;
+		image_mask.copyTo( key );
+
 		// Initialize values for program and for logging
 		int iterCount = 4;
 		double epsilon = 0.05;
@@ -529,7 +533,7 @@ public:
 				// Perform iteration
 				toLog += toString(scale) + ";" + toString(objects) + ";" + description +
 						toString(by) + ";" + toString(mode) + ";";
-				nextIter(image, image_mask, filters,
+				nextIter(image, image_mask, key, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
 					toLog, accuracy, total_time, total_iters,
 					out_path + "_t/" + original + "_TWO_so" + toString((float)skelOccup/10.0), by);
@@ -542,21 +546,6 @@ public:
 
 				// Update log string
 				toLog += toString((float)total_time) + "\n";
-				/*std::string original_size = toString(image.cols) + "x" + toString(image.rows);
-				if (mode == ONE_STEP)
-				{
-					toLog += toString(scale) + ";" + toString(objects) + ";" + description +
-						toString(by) + ";" + "0" + ";" +
-						toString((float)total_time) + ";" + "0.0" + ";" + "0.0";
-					calculateAccuracy( mask, image_mask, 2, toLog );
-				}
-				else
-				{
-					toLog += toString(scale) + ";" + toString(objects) + ";" + description +
-						toString(by) + ";" + toString(mode) + ";" +
-						toString((float)total_time) + ";" + toString((float)it_time1) + ";" + toString((float)it_time2);
-					calculateAccuracy( mask, image_mask, 2, toLog );
-				}*/
 				
 				++id;
 				{
@@ -797,6 +786,7 @@ int main( int argc, char** argv )
 	{
 		// For each chosen size and object count test squares of 8, 16, 32, 64 and 128
 		for (int k = 8; k < 256; k*=2)
+		//for (int k = 8; k < 32; k*=2)
 		{
 			// For each data set test 100 images
 			for (int l = 0; l < 100; ++l)
