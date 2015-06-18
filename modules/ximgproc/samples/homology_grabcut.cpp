@@ -376,6 +376,10 @@ public:
 		int mask_count = countNonZero( image_mask );
 		swapToInput( image_mask );
 
+		// Create key for testing
+		cv::Mat key;
+		image_mask.copyTo( key );
+
 		// Initialize values for program and for logging
 		int iterCount = 4;
 		double epsilon = 0.05;
@@ -411,7 +415,7 @@ public:
 			{
 				// Perform iteration
 				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
-				nextIter(image, image_mask, filters,
+				nextIter(image, image_mask, key, filters,
 					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
 					toLog, accuracy, total_time, total_iters,
 					out_path + "_t/" + original + "_TWO_so" + toString((float)skelOccup/10.0), 10);
@@ -446,6 +450,7 @@ public:
 		sem.post();
 	}
 };
+
 class WorkerMats {
 private:
 	const std::string logFileName;
