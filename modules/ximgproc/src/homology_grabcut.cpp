@@ -38,7 +38,6 @@
 // the use of this software, even if advised of the possibility of such damage.
 //
 //M*/
-#include "capd/apiRedHom/Algorithms.h"
 
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
@@ -74,7 +73,7 @@ Carsten Rother, Vladimir Kolmogorov, Andrew Blake.
  */
 
 /*
- GMM - Gaussian Mixture Model DOUBLE_CHANNELS dimensional
+ GMM - Gaussian Mixture Model template
 */
 template <typename DataType, int DataLength> class GMM
 {
@@ -285,7 +284,6 @@ template <typename DataType, int DataLength> void GMM< DataType, DataLength >::c
 				c_mat.at<double>(i, j) = c[DataLength*i+j];
         //double dtrm =
         //      covDeterms[ci] = c[0]*(c[4]*c[8]-c[5]*c[7]) - c[1]*(c[3]*c[8]-c[5]*c[6]) + c[2]*(c[3]*c[7]-c[4]*c[6]);
-		// TO DO: Find out why in the hell Determ can be less than 0, although barely
 		covDeterms[ci] = determinant(c_mat);
 		CV_Assert(covDeterms[ci] > 0.0);
 
@@ -684,6 +682,7 @@ std::string toString(float value)
 	// Done
 	return Ans + fraction;
 }
+
 double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseLevel, std::string& toLog)
 {
 	int tp = 0;
@@ -767,7 +766,8 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 	{
 		for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
 		{
-			// ...we take it's values (vector of 6 values, 3 colors and 3 standard deviations)
+			// ...we take it's values (vector of 3 colors, grayscale and 13 Schmidt filters,
+			// each having mean and standard deviation)
 			Vecd_dc& values = output->at<Vecd_dc>(p_o);
 			// ...initialize base values as 0
 			for (int i = 0; i < 2*CHANNELS; i++)
@@ -829,118 +829,6 @@ Mat* shrink( const Mat& input, Mat& mask, const int by )
 	}
 	out_mask.copyTo(mask);
 	
-	// And done!
-	return output;
-}
-
-// Homology version of shrink
-Mat* shrink_homology( const Mat& input, Mat& mask, const int by, std::string& toLog )
-{
-	// Create our shrunk Material
-	Mat* output = new Mat( input.rows/by, input.cols/by, CV_64FC(HOM_CHANNELS) );
-
-	// Variables to save the average vector length
-	int vector_sum = 0;
-
-	// For each point in ouput image...
-	Point p_i; // Input iterator
-	Point p_o; // Output iterator
-	for( p_o.y = 0; p_o.y < output->rows; p_o.y++ )
-	{
-		for( p_o.x = 0; p_o.x < output->cols; p_o.x++ )
-		{
-			// ...we take it's values (vector of 10 metrics)
-			Vec<double, HOM_CHANNELS>& values = output->at< Vec<double, HOM_CHANNELS> >(p_o);
-			// ...initialize base values as 0
-			for (int i = 0; i < HOM_CHANNELS; i++)
-				values[i] = 0.0;
-			// We also create CAPD library version of input image
-			std::vector< std::vector< double > > capd_img;
-
-			// And calculate these values using the area from input image. We first load all pixel values into our CAPD img
-			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < input.rows); p_i.y++)
-			{
-				std::vector< double > vec;
-				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < input.cols); p_i.x++)
-					vec.push_back( (double)input.at< uchar >(p_i) );
-				capd_img.push_back( vec );
-			}
-			// We got our CAPD image, we now have to use homology
-			capd::apiRedHom::ImagePersistentHomology IPH( capd_img );
-			std::vector< std::pair< double, double > > diagram = IPH();
-			
-			// We then create the abs difference vector needed for further calculations
-			// We skip the last one, as it's always (val, INF)
-			std::vector< double > hom_diffs;
-			for (int i = 0; i < diagram.size()-1; ++i)
-				hom_diffs.push_back( abs( diagram[i].second - diagram[i].first ) );
-			
-			// Save data about our vector
-			vector_sum += hom_diffs.size();
-
-			// In case of being empty we simply set everything to 0.0 and continue
-			if (hom_diffs.size() == 0)
-			{
-				for (int i = 0; i < HOM_CHANNELS; ++i)
-					values[i] = 0.0;
-				continue;
-			}
-
-			// Sort the vector so our job will be easier
-			std::sort( hom_diffs.begin(), hom_diffs.end() );
-			
-			// We use the abs difference on each of our 10 metrics
-			values[0] = hom_diffs[0]; //min
-			values[1] = hom_diffs[ hom_diffs.size()-1 ]; //max
-			values[4] = ( hom_diffs[ (int)ceil((double)(hom_diffs.size()-1)/4) ] +
-				hom_diffs[ (int)floor((double)(hom_diffs.size()-1)/4) ] )/2; //Q1;
-			values[5] =  ( hom_diffs[ (int)ceil((double)(hom_diffs.size()-1)/2) ] +
-				hom_diffs[ (int)floor((double)(hom_diffs.size()-1)/2) ] )/2; //Q2 (Median);
-			values[6] = ( hom_diffs[ (int)ceil((double)(hom_diffs.size()-1)*3/4) ] +
-				hom_diffs[ (int)floor((double)(hom_diffs.size()-1)*3/4) ] )/2; //Q3;
-			// Calculate mean and sums
-			for (int i = 0; i < hom_diffs.size(); ++i)
-			{
-				values[2] += hom_diffs[i]; // Sum of elements for mean
-				values[7] += std::sqrt( hom_diffs[i] ); //Sum of square roots
-				values[8] += hom_diffs[i]; // Sum of elements
-				values[9] += hom_diffs[i]*hom_diffs[i]; // Sum of squares
-			}
-			values[2] /= hom_diffs.size(); // mean
-			// Calculate standard deviation
-			for (int i = 0; i < hom_diffs.size(); ++i)
-				values[3] += (hom_diffs[i] - values[2])*(hom_diffs[i] - values[2]);
-			values[3] /= hom_diffs.size(); // standard deviation
-		}
-	}
-
-	// Save the average length of our vector
-	toLog = toLog + toString( (double)vector_sum / (output->rows * output->cols) ) + ";";
-
-	// Now time to shrink the mask
-	Mat out_mask;
-	out_mask.create( output->rows, output->cols, CV_8UC1 );
-	out_mask.setTo( Scalar(2) );
-	for( p_o.y = 0; p_o.y < out_mask.rows; p_o.y++ )
-	{
-		for( p_o.x = 0; p_o.x < out_mask.cols; p_o.x++ )
-		{
-			// Take a single point on output mask
-			uchar& value = out_mask.at<uchar>(p_o);
-
-			// And compare it to its by*by factors. GC_FGD > GC_BGD > GC_PR_FGD > GC_PR_BGD
-			for ( p_i.y = by*p_o.y; (p_i.y < by*(p_o.y+1)) && (p_i.y < mask.rows); p_i.y++)
-				for ( p_i.x = by*p_o.x; (p_i.x < by*(p_o.x+1)) && (p_i.x < mask.cols); p_i.x++)
-					if (mask.at<uchar>(p_i) == GC_FGD)
-						value = GC_FGD;
-					else if (mask.at<uchar>(p_i) == GC_BGD && value != GC_FGD)
-						value = GC_BGD;
-					else if (value != GC_FGD && value != GC_BGD)
-						value = max( mask.at<uchar>(p_i), value );
-		}
-	}
-	out_mask.copyTo(mask);
-
 	// And done!
 	return output;
 }
@@ -1051,7 +939,10 @@ int perform_grabcut_on( const Mat& img, Mat& mask, int iterCount, double epsilon
 		// Using max flow algorythm calculate segmentation
 		estimateSegmentation( graph, mask );
 
-		// Calculate the amount of pixels in C (pixels which equal 1 on current AND previous mask);
+		// Calculate stopping check for pixels which:
+		// A - were previously FGD (left)
+		// B - are currently FGD (right)
+		// C - were or are FGD (center)
 		A = B = C = 0;
 		Point p;
 		for (p.y = 0; p.y < mask.rows; ++p.y)
@@ -1193,6 +1084,8 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	// Save accuracy of enlarged image
 	calculateAccuracy( output_mask, key, 2, toLog );
 
+	// And that is it for RoughCut!
+	/*
 	// Perform grabcut and save its time for future references
 	for (int i = 0; i < iterCount; ++i)
 	{
@@ -1208,78 +1101,12 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	// Fill blanks in the other half
 	for (int i = 0; i < iterCount; ++i)
 		toLog = toLog + "NA;NA;NA;NA;NA;";
+	*/
 
 	delete img_cg;
 	delete img_dc;
 	return total_iters;
 }
-
-int homology_grabcut(InputArray _img, InputArray _mask,
-		OutputArray _output_mask, InputArray _key, std::string& toLog,
-		int iterCount, double epsilon, int by)
-{
-	// Standard null checking procedure
-	if( _img.empty() )
-		CV_Error( CV_StsBadArg, "image is empty" );
-	if( _img.type() != CV_8UC3 )
-		CV_Error( CV_StsBadArg, "image must have CV_8UC3 type" );
-	
-	Mat img = _img.getMat();
-	if (1 < img.channels())
-		cvtColor(img, img, COLOR_RGB2GRAY);
-	Mat mask = _mask.getMat();
-	Mat key = _key.getMat();
-	Mat& output_mask = _output_mask.getMatRef();
-	checkMask( img, mask );
-	
-	// Fill the log file with proper messages, since one-step does not perform them
-	toLog = toLog + "NA" + ";"; // Expansion
-	toLog = toLog + "NA" + ";"; // Convolution
-
-	// Shrink the image and mask to get 10 metric channels
-	clock_t start = clock();
-	Mat* hom_img = shrink_homology( img, mask, by, toLog ); // Image double channels (shrunk)
-	clock_t finish = clock();
-	double shrink_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
-	toLog = toLog + toString( shrink_time ) + ";";
-	
-	// Perform homology grabcut and save its time for future references
-	int total_iters = 0;
-	start = clock();
-	for (int i = 0; i < iterCount; ++i)
-		total_iters += perform_grabcut_on< double, double, HOM_CHANNELS>( *hom_img, mask, 1, epsilon );
-	finish = clock();
-	double it_time1 = (((double)(finish - start)) / CLOCKS_PER_SEC);
-	toLog = toLog + toString( it_time1 ) + ";";
-	delete hom_img;
-	
-	// Resize the mask and perform normal grabcut
-	start = clock();
-	expandShrunkMat( mask, output_mask, by );
-	finish = clock();
-	double enlarge_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
-	toLog = toLog + toString( enlarge_time ) + ";";
-	calculateAccuracy( output_mask, key, 2, toLog );
-	
-	// Perform grabcut and save its time for future references
-	for (int i = 0; i < iterCount; ++i)
-	{
-		start = clock();
-		total_iters += perform_grabcut_on< uchar, double, 3 >( img, output_mask, 1, epsilon );
-		finish = clock();
-		double it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
-		
-		// Save time and accuracy
-		toLog = toLog + toString( it_time2 ) + ";";
-		calculateAccuracy( output_mask, key, 2, toLog );
-	}
-	// Fill blanks in the other half
-	for (int i = 0; i < iterCount; ++i)
-		toLog = toLog + "NA;NA;NA;NA;NA;";
-
-	return total_iters;
-}
-
 
 // Create a single filter in accordance to
 // http://www.robots.ox.ac.uk/~vgg/research/texclass/filters.html

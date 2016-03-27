@@ -27,16 +27,14 @@ boost::interprocess::interprocess_semaphore sem(30);
 int progress = 0;
 int total = 0;
 
+int STARTING_SKEL_OCCUP = 1;
 enum MODE {
 	ONE_STEP	= 0,
 	TWO_STEP	= 1,
-	HOMOLOGY	= 2,
-	THREE_STEP	= 3,
-	END			= 4
+	END			= 2
 };
 
 /* Returns a list of files in a directory (except the ones that begin with a dot) */
-
 void GetFilesInDirectory(std::vector<std::string> &out, const std::string &directory)
 {
 #ifdef _WINDOWS
@@ -268,15 +266,10 @@ void nextIter(const cv::Mat& image, const cv::Mat& image_mask, const cv::Mat& ke
 	if (mode == ONE_STEP) {
 		total_iters = one_step_grabcut( image, image_mask, mask, key, toLog, iterCount, epsilon);
 	}
-	else if (mode == TWO_STEP) {
+	else {
 		total_iters = two_step_grabcut( image, image_mask, filters,
 						mask, key, toLog, test,
 						2048, iterCount/2, epsilon, by );
-	}
-	else if (mode == HOMOLOGY) {
-		total_iters = homology_grabcut( image, image_mask,
-						mask, key, toLog,
-						iterCount/2, epsilon, by );
 	}
 
 	clock_t finish = clock();
@@ -340,117 +333,6 @@ void readMask( Mat& mask )
 	}
 }
 
-class Worker {
-private:
-	const std::string logFileName;
-	const std::string source;
-	const std::string mask;
-	const std::string out_path;
-	const int start_id;
-public:
-	Worker( const std::string &_logFileName, const std::string &_source, const std::string &_mask,
-		const std::string &_out_path, const int _start_id) :
-		logFileName(_logFileName), source(_source), mask(_mask), out_path(_out_path), start_id(_start_id) {};
-
-	void operator()() {
-		// Randomization init
-		srand((unsigned int)time(NULL));
-
-		// Load the images
-		Mat image = imread( source, 1 );
-		Mat image_mask = imread( mask, 1 );
-		//readMask( image_mask );
-
-		// Save image data and enlarge image/mask if needed be
-		int scale = 5;
-		std::string original_size = toString(image.rows) + "x" + toString(image.cols);
-		if (scale > 1)
-		{
-			resize(image, image, image.size()*scale);
-			resize(image_mask, image_mask, image_mask.size()*scale, 0, 0, 1);
-		}
-
-		// Transform mask to one channel binary image
-		cvtColor(image_mask, image_mask, COLOR_RGB2GRAY);
-		threshold(image_mask, image_mask, 1.0, 255, THRESH_BINARY);
-		int mask_count = countNonZero( image_mask );
-		swapToInput( image_mask );
-
-		// Create key for testing
-		cv::Mat key;
-		image_mask.copyTo( key );
-
-		// Initialize values for program and for logging
-		int iterCount = 4;
-		double epsilon = 0.05;
-		int total_iters;
-
-		fstream logFile;
-		string toLog = "";
-		string original = "";
-		original = original + getFileName( source );
-		int id = start_id;
-
-		// Create filters
-		Mat filters;
-		create_filters(filters);
-
-		// Output mask
-		Mat mask;
-		mask.create(image.rows, image.cols, CV_8UC1);
-
-		for(int skelOccup = 5; skelOccup > 0; --skelOccup)
-		{
-			// Erode the mask to achieve % of original mask pixels
-			swapToValues( image_mask );
-			while ((double)countNonZero( image_mask )/mask_count > (double)skelOccup/10)
-				erode( image_mask, image_mask, Mat(), Point(-1, -1), 1 );
-			//std::cout << "SkelOccup: " << toString( (double)countNonZero( image_mask )/mask_count ) << "\n";
-			swapToInput( image_mask );
-
-			double accuracy, it_time1, it_time2, total_time;
-			accuracy = total_time = it_time1 = it_time2 = 0.0;
-
-			for (int mode = ONE_STEP; mode < HOMOLOGY; ++mode)
-			{
-				// Perform iteration
-				cout << "Begining loop for " << original << " with " << skelOccup << ", " << mode << endl;
-				nextIter(image, image_mask, key, filters,
-					mask, (double)skelOccup/10, iterCount, epsilon, 0, mode,
-					toLog, accuracy, total_time, total_iters,
-					out_path + "_t/" + original + "_TWO_so" + toString((float)skelOccup/10.0), 10);
-				swapToValues( mask );
-
-				// Save calculated image mask
-				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : (mode == HOMOLOGY ? "_HOM" : "_THREE")))
-					+ "_so" + toString((float)skelOccup/10.0) + ".png";
-				imwrite( output_file, mask );
-				// Update log string
-				if (mode == ONE_STEP)
-					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
-						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-						toString((float)total_time) + ";0.0;0.0;" +
-						getFileName(source) + ";" + original_size + ";" + toString(scale) + ";" + output_file + "\n";
-				else
-					toLog = toLog + toString((float)id) + ";" + toString((float)skelOccup/10) + ";" + toString((float)mode) + ";" +
-						toString((float)accuracy) + ";" + toString((float)total_iters) + ";" +
-						toString((float)total_time) + ";" + toString((float)it_time1) + ";" + toString((float)it_time2) + ";" +
-						getFileName(source) + ";" + original_size + ";" + toString(scale) + ";" + output_file + "\n";
-				++id;
-			}
-		}
-		// Initalize log file
-		{
-			boost::lock_guard<boost::mutex> lock(mtx);
-			logFile.open( logFileName.c_str(), ios::out | ios::ate | ios::app );
-			for (unsigned int i = 0; i < toLog.length(); i++)
-				logFile.write(&toLog.at(i), 1);
-			logFile.close();
-		}
-		sem.post();
-	}
-};
-
 class WorkerMats {
 private:
 	const std::string logFileName;
@@ -509,7 +391,7 @@ public:
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
 
-		for(int skelOccup = 5; skelOccup > 0; --skelOccup)
+		for(int skelOccup = STARTING_SKEL_OCCUP; skelOccup > 0; --skelOccup)
 		{
 			// Erode the mask to achieve % of original mask pixels
 			swapToValues( image_mask );
@@ -521,7 +403,7 @@ public:
 			double accuracy, it_time1, it_time2, total_time;
 			accuracy = total_time = it_time1 = it_time2 = 0.0;
 
-			for (int mode = ONE_STEP; mode < THREE_STEP; ++mode)
+			for (int mode = ONE_STEP; mode < END; ++mode)
 			{
 				// Set original filename to image id
 				original = toString( id );
@@ -545,12 +427,12 @@ public:
 				swapToValues( mask );
 
 				// Save calculated image mask
-				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : (mode == TWO_STEP ? "_TWO" : (mode == HOMOLOGY ? "_HOM" : "_THREE")))
+				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : "_TWO")
 					+ "_so" + toString((float)skelOccup/10.0) + ".png";
 				//imwrite( output_file, mask );
 
 				// Update log string
-				toLog += toString((float)total_time) + "\n";
+				toLog += toString((float)total_time) + ";" + toString((float)skelOccup/10.0) + ";" + toString(id) + "\n";
 				
 				++id;
 				{
@@ -715,7 +597,9 @@ public:
 				{
 					Vec3b val = objects[i].at<Vec3b>(p);
 					// Only the first one is needed as only this one will be checked
-					max[0] = std::max( max[0], val[0] );
+					if (max[0] < val[0])
+						max[0] = val[0];
+					//max[0] = std::max( max[0], val[0] );
 				}
 				// 0 = background. Textures start from 1
 				if ((unsigned int)max[0] == (selected_object+1))
@@ -782,7 +666,7 @@ int main( int argc, char** argv )
 	srand(time(NULL));
 
 	// Set totals: id_step * sizes * square_sizes * images
-	total = 15*4*5*100;
+	total = 10*4*5*100;
 
 	// Create tests for image size 512, 1024, 2048, 4096
 	int id = 0;
@@ -791,7 +675,6 @@ int main( int argc, char** argv )
 	{
 		// For each chosen size and object count test squares of 8, 16, 32, 64 and 128
 		for (int k = 8; k < 256; k*=2)
-		//for (int k = 8; k < 32; k*=2)
 		{
 			// For each data set test 100 images
 			for (int l = 0; l < 100; ++l)
@@ -804,76 +687,13 @@ int main( int argc, char** argv )
 
 				// Then create a thread for it
 				sem.wait();
-				//std::cout << 512*i << " " << j << " " << k << " " << l << " started work...\n";
-				//std::cout << "MAIN " << data.description << endl;
 				WorkerMats w( log_path, out_path, data.image, data.mask, data.description, id, 512*i, j, k);
 				threads.create_thread( w );
-				id += 15;
+				id += 10;
 			}
 		}
 	}
 	threads.join_all();
 
-	/*
-	// Initialize paths
-	char* log_path = argc >= 2 ? argv[1] : (char*)"./bin/log.csv";
-	
-	// Load images from given (or default) source folder
-	char* filename = argc >= 3 ? argv[2] : (char*)"./bin/images/sources";
-	std::vector<std::string> sources;
-	GetFilesInDirectory(sources, filename);
-	for (std::vector<std::string>::iterator i = sources.begin(); i != sources.end(); i)
-	{
-		if (!isTypeGraphic( getFileType( *i )))
-			i = sources.erase(i);
-		else ++i;
-	}
-	
-	// Load images from given (or default) mask folder
-	filename = argc >= 4 ? argv[3] : (char*)"./bin/images/ground_truths";
-	std::vector<std::string> masks;
-	GetFilesInDirectory(masks, filename);
-	for (std::vector<std::string>::iterator i = masks.begin(); i != masks.end(); i)
-	{
-		if (!isTypeGraphic( getFileType( *i )))
-			i = masks.erase(i);
-		else ++i;
-	}
-
-	// And last but not least the out path
-	char* out_path = argc >= 5 ? argv[4] : (char*)"./bin/answers";
-	
-	// Pairing up sources with their masks
-	std::vector<std::pair<int, int> > pairs;
-	for (unsigned int i = 0; i < sources.size(); ++i)
-	{
-		std::string source = getFileName( sources.at(i) );
-		for (unsigned int j = 0; j < masks.size(); ++j)
-			if (source.compare( getFileName( masks.at(j) ) ) == 0)
-			{
-				pairs.push_back( std::pair<int, int>(i, j) );
-				break;
-			}
-			else if (j == masks.size()-1)
-			{
-				cout << "\n Could not find a pairing mask for image " << sources.at(i) << endl;
-				cout << "Make sure the mask has the same filename as the image and it's extension is lower case.\n";
-				return 2;
-			}
-	}
-
-	// Creating work threads
-	int id = 0;
-	boost::thread_group threads;
-	for (std::vector<std::pair<int, int> >::iterator i = pairs.begin(); i != pairs.end(); ++i)
-	{
-		sem.wait();
-		Worker w( log_path, sources.at( i->first ), masks.at( i->second ), out_path, id );
-		threads.create_thread( w );
-		//w();
-		id += 15;
-	}
-	threads.join_all();
-	*/
 	return 0;
 }
