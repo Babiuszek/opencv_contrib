@@ -615,32 +615,34 @@ int main( int argc, char** argv )
 	// Make sure we get correctly random seed
 	srand(time(NULL));
 
+	std::map<int, int> cellSizes;
+	cellSizes[512] = 16;
+	cellSizes[1024] = 32;
+	cellSizes[2048] = 64;
+	cellSizes[4096] = 64;
+
 	// Set totals: id_step * sizes * square_sizes * images
-	total = 10*4*5*100;
+	total = 10*4*1*100;
 
 	// Create tests for image size 512, 1024, 2048, 4096
 	int id = 0;
 	boost::thread_group threads;
 	for (int i = 1; i < 16; i*=2)
 	{
-		// For each chosen size and object count test squares of 8, 16, 32, 64 and 128
-		for (int k = 8; k < 256; k*=2)
+		// For each data set test 100 images
+		for (int l = 0; l < 100; ++l)
 		{
-			// For each data set test 100 images
-			for (int l = 0; l < 100; ++l)
-			{
-				// Randomize the amount of objects
-				int j = rand()%8 + 1;
+			// Randomize the amount of objects
+			int j = rand()%8 + 1;
 
-				// First generate the actual image
-				ImageGenerator::Data data = generator.generateImage( 512*i, 512*i, j, rand() );
+			// First generate the actual image
+			ImageGenerator::Data data = generator.generateImage( 512*i, 512*i, j, rand() );
 
-				// Then create a thread for it
-				sem.wait();
-				WorkerMats w( log_path, out_path, data.image, data.mask, data.description, id, 512*i, j, k);
-				threads.create_thread( w );
-				id += 10;
-			}
+			// Then create a thread for it
+			sem.wait();
+			WorkerMats w( log_path, out_path, data.image, data.mask, data.description, id, 512*i, j, cellSizes[512*i]);
+			threads.create_thread( w );
+			id += 10;
 		}
 	}
 	threads.join_all();
