@@ -683,54 +683,6 @@ std::string toString(float value)
 	return Ans + fraction;
 }
 
-double calculateAccuracy(const cv::Mat& output, const cv::Mat& key, int verboseLevel, std::string& toLog)
-{
-	int tp = 0;
-	int tn = 0;
-	int fp = 0;
-	int fn = 0;
-	int wv = 0;
-	for (int i = 0; i < output.rows; i++)
-		for (int j = 0; j < output.cols; j++)
-		{
-			int value = (int)output.at<uchar>(i, j);
-			int answer = (int)key.at<uchar>(i, j);
-			
-			if (value == GC_BGD || value == GC_PR_BGD)
-				value = GC_PR_BGD;
-			else value = GC_PR_FGD;
-			if (answer == GC_BGD || answer == GC_PR_BGD)
-				answer = GC_PR_BGD;
-			else answer = GC_PR_FGD;
-
-			if (value == GC_PR_FGD && answer == GC_PR_FGD)
-				tp++;
-			else if (value == GC_PR_BGD && answer == GC_PR_BGD)
-				tn++;
-			else if (value == GC_PR_FGD && answer == GC_PR_BGD)
-				fp++;
-			else if (value == GC_PR_BGD && answer == GC_PR_FGD)
-				fn++;
-			else
-			{
-				wv++;
-				if (verboseLevel > 2)
-					std::cout << "Wrong value " << value << " or answer " << answer << "\n";
-			}
-		}
-	double precision = (double)(tp)/(tp+fp);
-	double recall = (double)(tp)/(tp+fn);
-	double answer = 2.0/(1.0/precision + 1.0/recall);
-	//double answer = (double)(tp+tn)/(tp+tn+fp+fn);
-	if (verboseLevel > 0)
-		;//toLog = toLog + ";" + toString((float)answer);
-	if (verboseLevel > 1)
-	{
-		toLog = toLog + toString(tp) + ";" + toString(tn) + ";" + toString(fp) + ";" + toString(fn) + ";";
-	}
-	return answer;
-}
-
 /*
   Estimate segmentation using MaxFlow algorithm
 */
@@ -991,7 +943,6 @@ int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask
 	toLog = toLog + "NA" + ";"; // Shrinkage
 	toLog = toLog + "NA" + ";"; // Iteration Time 1
 	toLog = toLog + "NA" + ";"; // Enlargement
-	toLog = toLog + "NA" + ";" + "NA" + ";" + "NA" + ";" + "NA" + ";"; // Accuracy check after enlarge
 
 	// Perform grabcut
 	int total_iters = 0;
@@ -1001,10 +952,6 @@ int one_step_grabcut(InputArray _img, InputArray _mask, OutputArray _output_mask
 		total_iters += perform_grabcut_on<uchar, double, 3>(img, output_mask, 1, epsilon);
 		clock_t finish = clock();
 		double it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
-
-		// Save time and accuracy
-		toLog = toLog + toString( it_time2 ) + ";";
-		calculateAccuracy( output_mask, key, 2, toLog );
 	}
 
 	// Save and return output
@@ -1080,28 +1027,6 @@ int two_step_grabcut( InputArray _img, InputArray _mask, InputArray _filters,
 	finish = clock();
 	double enlarge_time = (((double)(finish - start)) / CLOCKS_PER_SEC);
 	toLog = toLog + toString( enlarge_time ) + ";";
-
-	// Save accuracy of enlarged image
-	calculateAccuracy( output_mask, key, 2, toLog );
-
-	// And that is it for RoughCut!
-	/*
-	// Perform grabcut and save its time for future references
-	for (int i = 0; i < iterCount; ++i)
-	{
-		start = clock();
-		total_iters += perform_grabcut_on< uchar, double, 3 >( img, output_mask, 1, epsilon );
-		finish = clock();
-		double it_time2 = (((double)(finish - start)) / CLOCKS_PER_SEC);
-		
-		// Save time and accuracy
-		toLog = toLog + toString( it_time2 ) + ";";
-		calculateAccuracy( output_mask, key, 2, toLog );
-	}
-	// Fill blanks in the other half
-	for (int i = 0; i < iterCount; ++i)
-		toLog = toLog + "NA;NA;NA;NA;NA;";
-	*/
 
 	delete img_cg;
 	delete img_dc;
