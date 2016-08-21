@@ -97,13 +97,6 @@ namespace cv
 	CV_EXPORTS_W int two_step_grabcut(InputArray img, InputArray mask, InputArray filters,
 		OutputArray output_mask, InputArray key, std::string& toLog, std::string& path,
 		int pcaCount=2048, int iterCount=1, double epsilon=0.001, int by=10);
-
-	/**
-	 */
-
-	CV_EXPORTS_W int homology_grabcut(InputArray img, InputArray mask,
-		OutputArray output_mask, InputArray key, std::string& toLog,
-		int IterCount=1, double epsilon=0.001, int by=10);
 	
 	/** @brief Constructs 13 Schmid filters storing them in CV_32FC(13) Mat bank
 	
@@ -115,6 +108,10 @@ namespace cv
 	@param size of our output, square matrix. Default is 49, as given by original matlab code.
 	 */
 	CV_EXPORTS_W void create_filters(OutputArray filters, int size=49);
+
+	CV_EXPORTS_W int grabCut(InputArray img, InputArray mask, OutputArray output_mask, double epsilon=0.001);
+	
+	CV_EXPORTS_W int roughCut(InputArray img, InputArray mask, InputArray filters, OutputArray output_mask, double epsilon=0.001, int windowSize=10);
 }
 #endif
 #endif

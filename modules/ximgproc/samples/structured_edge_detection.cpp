@@ -13,7 +13,7 @@ const char* keys =
 };
 
 int main( int argc, const char** argv )
-{
+{/*
     bool printHelp = ( argc == 1 );
     printHelp = printHelp || ( argc == 2 && std::string(argv[1]) == "--help" );
     printHelp = printHelp || ( argc == 2 && std::string(argv[1]) == "-h" );
@@ -62,5 +62,5 @@ int main( int argc, const char** argv )
     else
         cv::imwrite(outFilename, 255*edges);
 
-    return 0;
+    return 0;*/
 }

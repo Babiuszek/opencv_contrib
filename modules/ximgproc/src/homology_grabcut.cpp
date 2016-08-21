@@ -1140,4 +1140,78 @@ void create_filters(OutputArray _filters, int size)
 	make_filter( filters, size, 10, 4, 12 );
 }
 
+int grabCut(InputArray _img, InputArray _mask, OutputArray _output_mask, double epsilon)
+{
+	// Standard null checking procedure
+	if( _img.empty() )
+		CV_Error( CV_StsBadArg, "image is empty" );
+	if( _img.type() != CV_8UC3 )
+		CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
+
+	// Load image
+	Mat img = _img.getMat();
+	Mat mask = _mask.getMat();
+	
+	// Load ground truth and output array
+	Mat& output_mask = _output_mask.getMatRef();
+	mask.copyTo( output_mask );
+
+	// Load and check the mask
+	checkMask( img, output_mask );
+
+	// Perform grabcut
+	int total_iters = perform_grabcut_on<uchar, double, 3>(img, output_mask, 1, epsilon);
+
+	// Save and return output
+	return total_iters;
+}
+
+int roughCut( InputArray _img, InputArray _mask, InputArray _filters, 
+		OutputArray _output_mask, double epsilon, int windowSize )
+{	
+	// Standard null checking procedure
+	if( _img.empty() )
+		CV_Error( CV_StsBadArg, "image is empty" );
+	if( _img.type() != CV_8UC3 )
+		CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
+	
+	// Load the input mats
+	Mat img = _img.getMat();
+	Mat mask = _mask.getMat();
+	Mat filters = _filters.getMat();
+	Mat& output_mask = _output_mask.getMatRef();
+	checkMask( img, mask );
+	mask.copyTo(output_mask); // Required for expandedShrunkMask function between grabcuts
+
+	// Initialization
+	Mat* img_cg = grey_and_expand( img ); //17 CHANNELS Dimensional Grey
+
+	// Applying filters
+	Mat img_cg_v[CHANNELS]; // Vector of values for filter2D usage
+	Mat filters_v[FILTERS]; // Vector of filters for filter2D usage
+	split( *img_cg, img_cg_v );
+	split( filters, filters_v );
+	for (int i = 0; i < FILTERS; i++)
+	{
+		// Apply the filter. Default values are:
+		// Point(-1,-1) (center of filter), delta=0.0, border handling is REFLECT_101
+		filter2D( img_cg_v[i+4], img_cg_v[i+4], CV_64F, filters_v[i] );
+	}
+	// Build back our final solution
+	merge( img_cg_v, CHANNELS, *img_cg );
+
+	// Shrink the image and mask to get 34 channels
+	Mat* img_dc = shrink( *img_cg, mask, windowSize ); // Image double channels (shrunk)
+	
+	// Perform grabcut and save its time for future references
+	int total_iters = perform_grabcut_on< double, double, 2*CHANNELS >( *img_dc, mask, 1, epsilon );
+
+	// Resize mask back to original size
+	expandShrunkMat( mask, output_mask, windowSize );
+
+	delete img_cg;
+	delete img_dc;
+	return total_iters;
+}
+
 } //namespace cv
