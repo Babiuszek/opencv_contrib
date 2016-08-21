@@ -328,10 +328,10 @@ public:
 		double epsilon = 0.05;
 		int total_iters;
 
+		int id = start_id;
 		fstream logFile;
 		string toLog = "";
-		string original = "";
-		int id = start_id;
+		string original = toString( id );
 
 		// Create filters
 		Mat filters;
@@ -340,6 +340,13 @@ public:
 		// Output mask
 		Mat mask;
 		mask.create(image.rows, image.cols, CV_8UC1);
+
+		string output_file = out_path + "/" + original + "img.png";
+		imwrite( output_file, image );
+		output_file = out_path + "/" + original + "mask.png";
+		swapToValues( image_mask );
+		imwrite( output_file, image );
+		swapToInput( image_mask );
 
 		for(int skelOccup = STARTING_SKEL_OCCUP; skelOccup > 0; --skelOccup)
 		{
@@ -377,9 +384,9 @@ public:
 				swapToValues( mask );
 
 				// Save calculated image mask
-				string output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : "_TWO")
+				output_file = out_path + "/" + original + (mode == ONE_STEP ? "_ONE" : "_TWO")
 					+ "_so" + toString((float)skelOccup/10.0) + ".png";
-				//imwrite( output_file, mask );
+				imwrite( output_file, mask );
 
 				// Update log string
 				toLog += toString((float)total_time) + ";" + toString((float)skelOccup/10.0) + ";" + toString(id) + "\n";
@@ -616,9 +623,9 @@ int main( int argc, char** argv )
 	srand(time(NULL));
 
 	std::map<int, int> cellSizes;
-	cellSizes[512] = 16;
-	cellSizes[1024] = 32;
-	cellSizes[2048] = 64;
+	cellSizes[512] = 8;
+	cellSizes[1024] = 16;
+	cellSizes[2048] = 32;
 	cellSizes[4096] = 64;
 
 	// Set totals: id_step * sizes * square_sizes * images
@@ -642,7 +649,7 @@ int main( int argc, char** argv )
 			sem.wait();
 			WorkerMats w( log_path, out_path, data.image, data.mask, data.description, id, 512*i, j, cellSizes[512*i]);
 			threads.create_thread( w );
-			id += 10;
+			id += 2;
 		}
 	}
 	threads.join_all();
