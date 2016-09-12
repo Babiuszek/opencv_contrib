@@ -486,12 +486,6 @@ void RCApplication::calculateF1Score()
 void RCApplication::status()
 {
 	cout << "Application status:\n";
-	if (shapes != NULL)
-		cout << "\tShapes:\t\t" << shapes << "\n";
-	else cout << "\tShapes:\t\t-\n";
-	if (textures != NULL)
-		cout << "\tTextures:\t" << textures << "\n";
-	else cout << "\tTextures:\t-\n";
 	if (images[0] != NULL)
 		cout << "\tImage:\t\tOK\n";
 	else cout << "\tImage:\t\t-\n";
@@ -656,9 +650,8 @@ int main( int argc, char** argv )
 			cout << "Loading file...\n";
 			app.setAndShowImage(&imread( path, 1 ), 1);
             break;
-		case 'r':
-			app.reset();
 		case '1':
+			app.reset();
 			cout << "Generating image and ground truth..." << endl;
 			app.generateImageAndGroundTruth(512, 512, 5, rand());
 			break;
@@ -669,15 +662,7 @@ int main( int argc, char** argv )
 		case '3':
 			cout << "Performing RoughCut..." << endl;
 			app.performRoughCut(0.05, 4);
-			break;
-		case '4':
 			app.calculateF1Score();
-			break;
-		case '9':
-			app.enableImShow();
-			break;
-		case '0':
-			app.disableImShow();
 			break;
         }
 		system("cls");
