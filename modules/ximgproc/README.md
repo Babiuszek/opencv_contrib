@@ -7,4 +7,6 @@ Extended Image Processing
 4. Adaptive Manifold Filter
 5. Joint Bilateral Filter
 6. Superpixels
-7. Homology based GrabCut
+7. Graph segmentation
+8. Selective search from segmentation
+10. Paillou Filter

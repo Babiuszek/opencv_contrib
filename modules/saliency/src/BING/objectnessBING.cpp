@@ -460,7 +460,7 @@ void ObjectnessBING::write() const
 
 }
 
-bool ObjectnessBING::computeSaliencyImpl( const InputArray image, OutputArray objectnessBoundingBox )
+bool ObjectnessBING::computeSaliencyImpl( InputArray image, OutputArray objectnessBoundingBox )
 {
   ValStructVec<float, Vec4i> finalBoxes;
   getObjBndBoxesForSingleImage( image.getMat(), finalBoxes, 250 );
@@ -475,7 +475,7 @@ bool ObjectnessBING::computeSaliencyImpl( const InputArray image, OutputArray ob
   unsigned long int valIdxesSize = (unsigned long int) finalBoxes.getvalIdxes().size();
   objectnessValues.resize( valIdxesSize );
   for ( uint i = 0; i < valIdxesSize; i++ )
-    objectnessValues[i] = finalBoxes.getvalIdxes()[i].first;
+    objectnessValues[finalBoxes.getvalIdxes()[i].second] = finalBoxes.getvalIdxes()[i].first;
 
   return true;
 }

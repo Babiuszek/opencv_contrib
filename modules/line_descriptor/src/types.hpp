@@ -40,12 +40,16 @@
  //
  //M*/
 
+#if defined _MSC_VER && _MSC_VER <= 1700
+#include <stdint.h>
+#else
 #include <inttypes.h>
+#endif
 
 #ifndef __OPENCV_TYPES_HPP
 #define __OPENCV_TYPES_HPP
 
-#ifdef _WIN32
+#ifdef _MSC_VER
 #pragma warning( disable : 4267 )
 #endif
 

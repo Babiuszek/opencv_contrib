@@ -94,7 +94,7 @@ public:
   }
 
 protected:
-  bool computeSaliencyImpl( const InputArray image, OutputArray saliencyMap );
+  bool computeSaliencyImpl( InputArray image, OutputArray saliencyMap );
   int resImWidth;
   int resImHeight;
 
@@ -154,7 +154,7 @@ protected:
        The saliency map is given by a single *Mat* (one for each frame of an hypothetical video
         stream).
   */
-  bool computeSaliencyImpl( const InputArray image, OutputArray saliencyMap );
+  bool computeSaliencyImpl( InputArray image, OutputArray saliencyMap );
 
 private:
 
@@ -268,7 +268,7 @@ protected:
     specialized algorithm, the objectnessBoundingBox is a *vector\<Vec4i\>*. Each bounding box is
     represented by a *Vec4i* for (minX, minY, maxX, maxY).
      */
-  bool computeSaliencyImpl( const InputArray image, OutputArray objectnessBoundingBox );
+  bool computeSaliencyImpl( InputArray image, OutputArray objectnessBoundingBox );
 
 private:
 
@@ -280,7 +280,7 @@ private:
     // For a W by H gradient magnitude map, find a W-7 by H-7 CV_32F matching score map
     Mat matchTemplate( const Mat &mag1u );
 
-    float dot( const int64_t tig1, const int64_t tig2, const int64_t tig4, const int64_t tig8 );
+    float dot( int64_t tig1, int64_t tig2, int64_t tig4, int64_t tig8 );
     void reconstruct( Mat &w );// For illustration purpose
 
   private:

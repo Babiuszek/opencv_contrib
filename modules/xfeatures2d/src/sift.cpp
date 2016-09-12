@@ -105,6 +105,7 @@
 #include "precomp.hpp"
 #include <iostream>
 #include <stdarg.h>
+#include <opencv2/core/hal/hal.hpp>
 
 namespace cv
 {
@@ -337,9 +338,9 @@ static float calcOrientationHist( const Mat& img, Point pt, int radius,
     len = k;
 
     // compute gradient values, orientations and the weights over the pixel neighborhood
-    exp(W, W, len);
-    fastAtan2(Y, X, Ori, len, true);
-    magnitude(X, Y, Mag, len);
+    cv::hal::exp32f(W, W, len);
+    cv::hal::fastAtan2(Y, X, Ori, len, true);
+    cv::hal::magnitude32f(X, Y, Mag, len);
 
     for( k = 0; k < len; k++ )
     {
@@ -578,7 +579,7 @@ static void calcSIFTDescriptor( const Mat& img, Point2f ptf, float ori, float sc
     float hist_width = SIFT_DESCR_SCL_FCTR * scl;
     int radius = cvRound(hist_width * 1.4142135623730951f * (d + 1) * 0.5f);
     // Clip the radius to the diagonal of the image to avoid autobuffer too large exception
-    radius = std::min(radius, (int) sqrt((double) img.cols*img.cols + img.rows*img.rows));
+    radius = std::min(radius, (int) sqrt(((double) img.cols)*img.cols + ((double) img.rows)*img.rows));
     cos_t /= hist_width;
     sin_t /= hist_width;
 
@@ -620,9 +621,9 @@ static void calcSIFTDescriptor( const Mat& img, Point2f ptf, float ori, float sc
         }
 
     len = k;
-    fastAtan2(Y, X, Ori, len, true);
-    magnitude(X, Y, Mag, len);
-    exp(W, W, len);
+    cv::hal::fastAtan2(Y, X, Ori, len, true);
+    cv::hal::magnitude32f(X, Y, Mag, len);
+    cv::hal::exp32f(W, W, len);
 
     for( k = 0; k < len; k++ )
     {

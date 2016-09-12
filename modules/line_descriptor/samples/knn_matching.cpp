@@ -42,7 +42,6 @@
 #include <opencv2/line_descriptor.hpp>
 
 #include "opencv2/core/utility.hpp"
-#include "opencv2/core/private.hpp"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/features2d.hpp>
 #include <opencv2/highgui.hpp>
@@ -112,7 +111,7 @@ uchar invertSingleBits( uchar dividend_char, int numBits )
   /* reconvert to decimal */
   uchar result = 0;
   for ( int i = (int) bin_vector.size() - 1; i >= 0; i-- )
-    result += (uchar) ( bin_vector[i] * pow( 2, i ) );
+    result += (uchar) ( bin_vector[i] * (1 << i) );
 
   return result;
 }
