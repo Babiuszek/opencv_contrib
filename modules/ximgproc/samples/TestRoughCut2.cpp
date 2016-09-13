@@ -308,8 +308,6 @@ private:
 	char* shapes;
 	char* textures;
 	ImageGenerator* generator;
-
-	Mat* filters;
 	
 	double f1Score;
 	bool imShowEnabled;
@@ -332,8 +330,6 @@ RCApplication::RCApplication()
 	textures = NULL;
 	generator = NULL;
 	
-	filters = new Mat();
-	create_filters(*filters);
 	f1Score = 0.0;
 
 	imShowEnabled = true;
@@ -360,8 +356,6 @@ void RCApplication::destroy()
 		delete[] shapes;
 	if (textures != NULL)
 		delete[] textures;
-
-	delete filters;
 }
 
 void RCApplication::setAndShowImage(Mat* mat, int which)
@@ -427,8 +421,7 @@ void RCApplication::performRoughCut(double epsilon, int windowSize)
 	Mat* segmentation = new Mat();
 	swapToInput(images[2]);
 
-	//TODO Get rid of filters, move them inside, maybe as additional parameter used only if given
-	roughCut( *images[0], *images[2], *filters, *segmentation);
+	roughCut( *images[0], *images[2], *segmentation, epsilon, windowSize);
 
 	swapToValues(images[2]);
 	swapToValues(segmentation);
@@ -486,12 +479,6 @@ void RCApplication::calculateF1Score()
 void RCApplication::status()
 {
 	cout << "Application status:\n";
-	if (shapes != NULL)
-		cout << "\tShapes:\t\t" << shapes << "\n";
-	else cout << "\tShapes:\t\t-\n";
-	if (textures != NULL)
-		cout << "\tTextures:\t" << textures << "\n";
-	else cout << "\tTextures:\t-\n";
 	if (images[0] != NULL)
 		cout << "\tImage:\t\tOK\n";
 	else cout << "\tImage:\t\t-\n";
@@ -501,9 +488,6 @@ void RCApplication::status()
 	if (images[2] != NULL)
 		cout << "\tSeed:\t\tOK\n";
 	else cout << "\tSeed:\t\t-\n";
-	if (images[3] != NULL)
-		cout << "\tSegmentation:\tOK\n";
-	else cout << "\tSegmentation:\t-\n";
 	if (f1Score != 0.0)
 		cout << "\tF1Score:\t" << f1Score << "\n";
 	else cout << "\tF1Score:\t-\n";
@@ -593,16 +577,9 @@ static void help(RCApplication& app)
             "Provide an image and its seed for RoughCut to perform segmentation on it.\n"
         "\nHot keys: \n"
         "\te/q - quit the program\n"
-        "\ti - select image\n"
-		"\tg - select ground truth\n"
-		"\ts - set generator shapes\n"
-		"\tt - set generator textures\n"
         "\t1 - generate random image/ground truth\n"
         "\t2 - generate seed from ground truth\n"
-        "\t3 - perform rough cut\n"
-        "\t4 - calculate F1 Score\n"
-		"\t9 - enable image show\n"
-		"\t0 - disable image show\n" << endl;
+        "\t3 - perform RoughCut and calculate F1 Score\n" << endl;
 	app.status();
 }
 
@@ -644,21 +621,8 @@ int main( int argc, char** argv )
         case 'q':
             cout << "Exiting ..." << endl;
             goto exit_main;
-        case 'i':
-			cout << "Enter image path: ";
-			path = getFilePath();
-			cout << "Loading file...\n";
-			app.setAndShowImage(&imread( path, 1 ), 0);
-            break;
-        case 'g':
-			cout << "Enter ground truth path: ";
-			path = getFilePath();
-			cout << "Loading file...\n";
-			app.setAndShowImage(&imread( path, 1 ), 1);
-            break;
-		case 'r':
-			app.reset();
 		case '1':
+			app.reset();
 			cout << "Generating image and ground truth..." << endl;
 			app.generateImageAndGroundTruth(512, 512, 5, rand());
 			break;
@@ -669,15 +633,7 @@ int main( int argc, char** argv )
 		case '3':
 			cout << "Performing RoughCut..." << endl;
 			app.performRoughCut(0.05, 4);
-			break;
-		case '4':
 			app.calculateF1Score();
-			break;
-		case '9':
-			app.enableImShow();
-			break;
-		case '0':
-			app.disableImShow();
 			break;
         }
 		system("cls");

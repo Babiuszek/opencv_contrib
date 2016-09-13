@@ -111,7 +111,7 @@ namespace cv
 
 	CV_EXPORTS_W int grabCut(InputArray img, InputArray mask, OutputArray output_mask, double epsilon=0.001);
 	
-	CV_EXPORTS_W int roughCut(InputArray img, InputArray mask, InputArray filters, OutputArray output_mask, double epsilon=0.001, int windowSize=10);
+	CV_EXPORTS_W int roughCut(InputArray img, InputArray mask, OutputArray output_mask, double epsilon=0.001, int windowSize=10, InputArray filters=Mat());
 }
 #endif
 #endif

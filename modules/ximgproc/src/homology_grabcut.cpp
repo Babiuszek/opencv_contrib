@@ -1166,19 +1166,26 @@ int grabCut(InputArray _img, InputArray _mask, OutputArray _output_mask, double 
 	return total_iters;
 }
 
-int roughCut( InputArray _img, InputArray _mask, InputArray _filters, 
-		OutputArray _output_mask, double epsilon, int windowSize )
+int roughCut( InputArray _img, InputArray _mask, OutputArray _output_mask,
+		double epsilon, int windowSize, InputArray _filters )
 {	
 	// Standard null checking procedure
 	if( _img.empty() )
 		CV_Error( CV_StsBadArg, "image is empty" );
 	if( _img.type() != CV_8UC3 )
-		CV_Error( CV_StsBadArg, "image mush have CV_8UC3 type" );
+		CV_Error( CV_StsBadArg, "image must have CV_8UC3 type" );
 	
 	// Load the input mats
 	Mat img = _img.getMat();
 	Mat mask = _mask.getMat();
-	Mat filters = _filters.getMat();
+	Mat filters;
+	if ( _filters.empty() ) {
+		static Mat defaultShmidFilters;
+		if (defaultShmidFilters.empty()) {
+			create_filters( defaultShmidFilters, 49 );
+		}
+		filters = defaultShmidFilters;
+	} else filters = _filters.getMat();
 	Mat& output_mask = _output_mask.getMatRef();
 	checkMask( img, mask );
 	mask.copyTo(output_mask); // Required for expandedShrunkMask function between grabcuts
